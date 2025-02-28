@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Play, Pause, Download, Upload, Disc } from 'lucide-react';
 
 function App() {
@@ -14,24 +14,10 @@ function App() {
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
   const [showConfig, setShowConfig] = useState(false);
   
-  const audioContext = useRef<AudioContext | null>(null);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const destinationNode = useRef<MediaStreamAudioDestinationNode | null>(null);
   const intervalRef = useRef<number | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
-  
-  // Initialize audio context
-  useEffect(() => {
-    if (!audioContext.current) {
-      audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      destinationNode.current = audioContext.current.createMediaStreamDestination();
-    }
-    return () => {
-      if (audioContext.current) {
-        audioContext.current.close();
-      }
-    };
-  }, []);
   
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,11 +27,10 @@ function App() {
       
       try {
         const arrayBuffer = await file.arrayBuffer();
-        if (audioContext.current) {
-          const buffer = await audioContext.current.decodeAudioData(arrayBuffer);
-          setAudioBuffer(buffer);
-          setShowConfig(true); // Show configuration after upload
-        }
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const buffer = await audioContext.decodeAudioData(arrayBuffer);
+        setAudioBuffer(buffer);
+        setShowConfig(true); // Show configuration after upload
       } catch (error) {
         console.error('Error decoding audio data:', error);
       }
@@ -54,7 +39,7 @@ function App() {
   
   // Slice the audio based on BPM and division
   const sliceAudio = () => {
-    if (!audioBuffer || !audioContext.current) return;
+    if (!audioBuffer) return;
     
     // Calculate slice duration based on BPM and division
     const beatsPerSecond = bpm / 60;
@@ -88,7 +73,8 @@ function App() {
       const endTime = Math.min((i + 1) * sliceDuration, audioBuffer.duration);
       const sliceLength = Math.ceil((endTime - startTime) * audioBuffer.sampleRate);
       
-      const sliceBuffer = audioContext.current.createBuffer(
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const sliceBuffer = audioContext.createBuffer(
         audioBuffer.numberOfChannels,
         sliceLength,
         audioBuffer.sampleRate
@@ -99,7 +85,7 @@ function App() {
         audioBuffer.copyFromChannel(originalData, channel);
         
         const startSample = Math.floor(startTime * audioBuffer.sampleRate);
-        const sliceData = originalData.subarray(startSample, startSample + sliceLength);
+        const sliceData = originalData.subarray(startSample, sliceLength);
         
         sliceBuffer.copyToChannel(sliceData, channel);
       }
@@ -119,14 +105,15 @@ function App() {
   
   // Play a specific slice
   const playSlice = (index: number) => {
-    if (!audioContext.current || !slices[index]) {
+    if (!slices[index]) {
       console.error("Cannot play slice: context or slice not available");
       return;
     }
     
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     // Resume audio context if it's suspended (needed for some browsers)
-    if (audioContext.current.state === 'suspended') {
-      audioContext.current.resume();
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
     }
     
     // Stop any currently playing source
@@ -134,17 +121,17 @@ function App() {
       try {
         sourceRef.current.stop();
       } catch (e) {
-        // Ignore errors if source is already stopped
+        // Ignore errors if already stopped
       }
     }
     
-    const source = audioContext.current.createBufferSource();
+    const source = audioContext.createBufferSource();
     sourceRef.current = source;
     source.buffer = slices[index];
     source.playbackRate.value = playbackRate;
     
     // Connect to destination for normal playback
-    source.connect(audioContext.current.destination);
+    source.connect(audioContext.destination);
     
     // Connect to recording destination if recording
     if (isRecording && destinationNode.current) {
@@ -254,22 +241,29 @@ function App() {
     a.click();
     URL.revokeObjectURL(url);
   };
-  
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      if (sourceRef.current) {
-        try {
-          sourceRef.current.stop();
-        } catch (e) {
-          // Ignore errors if source is already stopped
+
+    // Play sine wave
+    const playSineWave = () => {
+      try {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+        // Resume audio context if it's suspended
+        if (audioContext.state === 'suspended') {
+          audioContext.resume();
         }
+
+        const oscillator = audioContext.createOscillator();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
+        oscillator.connect(audioContext.destination);
+        oscillator.start();
+        setTimeout(() => oscillator.stop(), 500);
+      } catch (error) {
+        console.error('Error playing sine wave:', error);
       }
     };
-  }, []);
+
+  // Clean up on unmount
   
   return (
     <div className="min-h-screen bg-black text-white flex flex-col items-center p-8">
@@ -278,6 +272,10 @@ function App() {
         <h1 className="text-3xl font-bold text-yellow-400">slice2bliss</h1>
       </header>
       
+      <button onClick={playSineWave} className="bg-yellow-400 text-black px-4 py-2 rounded cursor-pointer hover:bg-yellow-300 transition-colors">
+        Play Sine Wave
+      </button>
+
       {!audioFile ? (
         <div className="w-full max-w-4xl flex flex-col items-center justify-center p-12 border-2 border-dashed border-yellow-400 rounded-lg">
           <Upload className="text-yellow-400 mb-4" size={48} />
