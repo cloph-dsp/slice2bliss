@@ -17,13 +17,9 @@ function App() {
   const [slices, setSlices] = useState<AudioSegment[]>([]);
   const [activeSlice, setActiveSlice] = useState(-1);
   const [slicePlaybackRate, setSlicePlaybackRate] = useState(1);
-  const [transitionPlaybackRate, setTransitionPlaybackRate] = useState(0.5); 
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
+  const [transitionPlaybackRate, setTransitionPlaybackRate] = useState(0.5);
   const [showConfig, setShowConfig] = useState(false);
 
-  const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const destinationNode = useRef<MediaStreamAudioDestinationNode | null>(null);
   const intervalRef = useRef<number | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
 
@@ -69,7 +65,7 @@ function App() {
       return;
     }
 
-    playbackEngine.playSegment(slices[index], { playbackRate: slicePlaybackRate });
+    playbackEngine.playSegment(slices[index].buffer, { playbackRate: slicePlaybackRate });
     console.log(`Playing slice ${index}, duration: ${slices[index].metadata.duration}s`);
     setActiveSlice(index);
 
@@ -130,47 +126,6 @@ function App() {
         setIsPlaying(true);
       }
     }
-  };
-
-  // Start/stop recording
-  const toggleRecording = () => {
-    if (isRecording) {
-      if (mediaRecorder.current) {
-        mediaRecorder.current.stop();
-      }
-      setIsRecording(false);
-    } else {
-      if (destinationNode.current) {
-        const chunks: Blob[] = [];
-        mediaRecorder.current = new MediaRecorder(destinationNode.current.stream);
-
-        mediaRecorder.current.ondataavailable = (e: any) => {
-          if (e.data.size > 0) {
-            chunks.push(e.data);
-          }
-        };
-
-        mediaRecorder.current.onstop = () => {
-          setRecordedChunks(chunks);
-        };
-
-        mediaRecorder.current.start();
-        setIsRecording(true);
-      }
-    }
-  };
-
-  // Download recorded audio
-  const downloadRecording = () => {
-    if (recordedChunks.length === 0) return;
-
-    const blob = new Blob(recordedChunks, { type: 'audio/mp3' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'slice2bliss-recording.mp3';
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   // Play sine wave
@@ -251,8 +206,7 @@ function App() {
 
           <button
             onClick={applyConfig}
-            className="w-full bg-yellow-400 text-black py-3 rounded font-bold hover:bg-yellow-300 transition-colors"
-          >
+            className="w-full bg-yellow-400 text-black py-3 rounded font-bold hover:bg-yellow-300 transition-colors">
             Slice Audio
           </button>
         </div>
@@ -303,29 +257,6 @@ function App() {
                 title={isPlaying ? "Pause" : "Play"}
               >
                 {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-              </button>
-
-              <button
-                onClick={toggleRecording}
-                className={`p-2 rounded-full transition-colors ${
-                  isRecording
-                    ? "bg-red-500 text-white hover:bg-red-400"
-                    : "bg-gray-700 text-white hover:bg-gray-600"
-                }`}
-                title={isRecording ? "Stop Recording" : "Start Recording"}
-              >
-                <span className="block h-4 w-4 rounded-full bg-current"></span>
-              </button>
-
-              {recordedChunks.length > 0 && (
-                <button
-                  onClick={downloadRecording}
-                  className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors"
-                  title="Download Recording"
-                >
-                  <Download size={24} />
-                </button>
-              )}
             </div>
           </div>
 
@@ -376,8 +307,7 @@ function App() {
                     intervalRef.current = null;
                   }
                 }}
-                className="text-yellow-400 underline hover:text-yellow-300"
-              >
+                className="text-yellow-400 underline hover:text-yellow-300">
                 Upload a different file
               </button>
             </div>
