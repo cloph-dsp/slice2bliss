@@ -56,9 +56,13 @@ export class AudioPlaybackEngine {
         
         // Set playback rate if specified
         if (options.playbackRate !== undefined) {
-          source.playbackRate.value = options.playbackRate;
+          const playbackRate = Math.max(0.5, Math.min(2.0, options.playbackRate));
+          try {
+            source.playbackRate.value = playbackRate;
+          } catch (error) {
+            console.error("Error setting playback rate:", error);
+          }
         }
-        
         // Set detune if specified
         if (options.detune !== undefined) {
           source.detune.value = options.detune;
@@ -114,13 +118,13 @@ export class AudioPlaybackEngine {
         
         source.start(0, offset, duration2 > 0 ? duration2 : undefined);
         
+        console.log(`Playing segment ${segment.id} (${segment.metadata.sliceIndex}), offset: ${offset}, duration2: ${duration2}, duration: ${duration}s`);
+
         // Handle completion
         source.onended = () => {
           this.cleanupPlayback(segment.id);
           resolve();
         };
-        
-        console.log(`Playing segment ${segment.id} (${segment.metadata.sliceIndex}), duration: ${duration}s`);
       } catch (error) {
         console.error('Error playing segment:', error);
         reject(error);

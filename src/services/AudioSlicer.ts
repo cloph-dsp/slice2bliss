@@ -80,6 +80,8 @@ export class AudioSlicer {
         buffer: slice,
         metadata
       });
+
+      console.log(`Slice ${i}: startTime=${startTime}, endTime=${endTime}, sliceDuration=${sliceDuration}`);
     }
     
     console.log(`Created ${segments.length} audio segments with sample-accurate boundaries`);
