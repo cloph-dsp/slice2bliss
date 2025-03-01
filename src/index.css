@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Basic styles first - no imports */
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
@@ -10,19 +11,184 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: #121212;
   color: #ffffff;
+  overflow: hidden;
+  height: 100vh;
 }
 
+/* Include grid styles directly instead of importing */
+/* Grid adaptive styles */
+.slice-grid-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Optimize for different device sizes */
+@media (max-width: 640px) {
+  .slice-grid-container[data-slice-count="1"] button,
+  .slice-grid-container[data-slice-count="2"] button,
+  .slice-grid-container[data-slice-count="3"] button,
+  .slice-grid-container[data-slice-count="4"] button {
+    min-width: 100px;
+    min-height: 100px;
+  }
+}
+
+/* Dynamic sizing based on slice count */
+.slice-grid-container[data-slice-count="1"] button,
+.slice-grid-container[data-slice-count="2"] button,
+.slice-grid-container[data-slice-count="3"] button,
+.slice-grid-container[data-slice-count="4"] button {
+  font-size: 1.25rem;
+}
+
+/* Rest of the existing styles */
 input[type="range"] {
-  height: 4px;
+  height: 2.5px;
   accent-color: #f7dc6f;
   border-radius: 2px;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
 }
 
-.w-full {
-  margin-inline: auto;
-  padding-inline: 2rem;
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #f7dc6f;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 
-.max-w-md {
-  margin-block: 2rem;
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #f7dc6f;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+.grid-container {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+/* Grid aspect ratio wrapper to maintain proper sizing */
+.grid-container::before {
+  content: '';
+  width: 0;
+  padding-bottom: 100%;
+  grid-row: 1 / 1;
+  grid-column: 1 / 1;
+}
+
+.grid-container > *:first-child {
+  grid-row: 1 / 1;
+  grid-column: 1 / 1;
+}
+
+/* Fix grid placement */
+.grid-container > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Styling for the pads */
+.pad {
+  position: relative;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.pad.active {
+  background-color: #f7dc6f; /* yellow-400 */
+  cursor: pointer;
+}
+
+.pad.active:hover {
+  background-color: #f9e589; /* yellow-300 */
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.pad.inactive {
+  background-color: #111827; /* gray-900 */
+  opacity: 0.3;
+}
+
+.pad.playing {
+  box-shadow: 0 0 0 3px white, 0 0 15px #f7dc6f;
+  z-index: 1;
+  transform: scale(1.05);
+  background-color: #fde047; /* yellow-300 - brighter when playing */
+  animation: pulse 0.5s infinite alternate;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 2px white, 0 0 5px 2px rgba(247, 220, 111, 0.5);
+  }
+  
+  100% {
+    box-shadow: 0 0 0 2px white, 0 0 10px 3px rgba(247, 220, 111, 0.8);
+  }
+}
+
+/* Loading animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* For smaller screens, adjust padding */
+@media (max-width: 640px) {
+  .grid-container {
+    gap: 6px;
+    padding: 6px;
+  }
+  
+  .pad {
+    border-radius: 4px;
+  }
+}
+
+/* Enhanced button focus states */
+button:focus-visible {
+  outline: 2px solid #f7dc6f;
+  outline-offset: 2px;
+}
+
+/* Enhanced scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(247, 220, 111, 0.4);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(247, 220, 111, 0.6);
 }

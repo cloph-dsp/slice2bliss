@@ -1,0 +1,91 @@
+/* Grid adaptive styles */
+.slice-grid-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Optimize for different device sizes */
+@media (max-width: 640px) {
+  .slice-grid-container[data-slice-count="1"] button,
+  .slice-grid-container[data-slice-count="2"] button,
+  .slice-grid-container[data-slice-count="3"] button,
+  .slice-grid-container[data-slice-count="4"] button {
+    min-width: 100px;
+    min-height: 100px;
+  }
+}
+
+/* Dynamic sizing based on slice count with better progression */
+.slice-grid-container[data-slice-count="1"] button,
+.slice-grid-container[data-slice-count="2"] button,
+.slice-grid-container[data-slice-count="3"] button,
+.slice-grid-container[data-slice-count="4"] button {
+  font-size: 1.25rem;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Medium count */
+.slice-grid-container[data-slice-count="16"] button,
+.slice-grid-container[data-slice-count="17"] button,
+.slice-grid-container[data-slice-count="18"] button,
+.slice-grid-container[data-slice-count="19"] button,
+.slice-grid-container[data-slice-count="20"] button,
+.slice-grid-container[data-slice-count="21"] button,
+.slice-grid-container[data-slice-count="22"] button,
+.slice-grid-container[data-slice-count="23"] button,
+.slice-grid-container[data-slice-count="24"] button {
+  font-size: 0.9rem;
+}
+
+/* Large count */
+.slice-grid-container[data-slice-count="32"] button,
+.slice-grid-container[data-slice-count="33"] button,
+.slice-grid-container[data-slice-count="34"] button,
+.slice-grid-container[data-slice-count="35"] button,
+.slice-grid-container[data-slice-count="36"] button,
+.slice-grid-container[data-slice-count="37"] button,
+.slice-grid-container[data-slice-count="38"] button,
+.slice-grid-container[data-slice-count="39"] button,
+.slice-grid-container[data-slice-count="40"] button {
+  font-size: 0.8rem;
+}
+
+/* Very large count */
+.slice-grid-container[data-slice-count="64"] button,
+.slice-grid-container[data-slice-count="65"] button,
+.slice-grid-container[data-slice-count="66"] button,
+.slice-grid-container[data-slice-count="67"] button,
+.slice-grid-container[data-slice-count="68"] button,
+.slice-grid-container[data-slice-count="69"] button,
+.slice-grid-container[data-slice-count="70"] button {
+  font-size: 0.75rem;
+}
+
+/* Active grid item styling */
+.slice-grid-container button.active {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(247, 220, 111, 0.3);
+}
+
+/* Improved fade effect for overflowed content */
+.slice-grid-container::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.slice-grid-container.overflowed::after {
+  opacity: 1;
+}

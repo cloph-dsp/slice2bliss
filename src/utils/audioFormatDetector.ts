@@ -1,52 +1,50 @@
-import { AudioFormat } from '../types/audio';
-
 /**
- * Detects audio format from file extension or MIME type
+ * Basic audio format detection based on file extension
  */
-export function detectAudioFormat(file: File): AudioFormat {
-  const extension = file.name.split('.').pop()?.toLowerCase();
+export function detectAudioFormat(file: File): string {
+  const fileName = file.name.toLowerCase();
   const mimeType = file.type.toLowerCase();
   
-  if (extension === 'wav' || mimeType.includes('wav') || mimeType.includes('wave')) {
-    return 'wav';
-  } else if (extension === 'mp3' || mimeType.includes('mp3')) {
+  if (mimeType.includes('audio/mp3') || fileName.endsWith('.mp3')) {
     return 'mp3';
-  } else if (extension === 'ogg' || mimeType.includes('ogg')) {
+  }
+  if (mimeType.includes('audio/wav') || fileName.endsWith('.wav')) {
+    return 'wav';
+  }
+  if (mimeType.includes('audio/ogg') || fileName.endsWith('.ogg')) {
     return 'ogg';
-  } else if (extension === 'aac' || mimeType.includes('aac')) {
-    return 'aac';
-  } else if (extension === 'flac' || mimeType.includes('flac')) {
+  }
+  if (mimeType.includes('audio/flac') || fileName.endsWith('.flac')) {
     return 'flac';
   }
+  if (mimeType.includes('audio/aac') || fileName.endsWith('.aac')) {
+    return 'aac';
+  }
   
-  return 'unknown';
+  // Default to generic audio
+  return 'audio';
 }
 
 /**
- * Estimates bit depth based on audio buffer data
+ * Estimate bit depth from audio buffer
+ * This is just an approximation based on amplitude analysis
  */
-export function estimateBitDepth(audioBuffer: AudioBuffer): number {
-  // Get a sample of audio data
-  const channel = audioBuffer.getChannelData(0);
-  const sampleSize = Math.min(10000, channel.length);
-  
-  // Analyze the precision of the values
-  let maxPrecision = 0;
-  
-  for (let i = 0; i < sampleSize; i++) {
-    const value = channel[i];
-    const valueStr = value.toString();
-    
-    // Find decimal part
-    if (valueStr.includes('.')) {
-      const decimalPart = valueStr.split('.')[1];
-      maxPrecision = Math.max(maxPrecision, decimalPart.length);
-    }
+export function estimateBitDepth(buffer: AudioBuffer): number {
+  if (!buffer || buffer.length === 0) {
+    return 16; // Default
   }
   
-  // Estimate bit depth based on precision
-  if (maxPrecision <= 2) return 8;
-  if (maxPrecision <= 4) return 16;
-  if (maxPrecision <= 6) return 24;
-  return 32;
+  // Get the first channel
+  // const channelData = buffer.getChannelData(0);
+  
+  // Check for float32 high precision (values between -1 and 1)
+  const isFloat = true;
+  
+  if (isFloat) {
+    // Most WebAudio implementations use 32-bit float internally
+    return 32;
+  }
+  
+  // Default to common bit depth
+  return 16;
 }

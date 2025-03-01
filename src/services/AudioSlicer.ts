@@ -1,15 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
-import { AudioSegment, AudioSegmentMetadata, AudioFormat } from '../types/audio';
+import { AudioSegment, SliceOptions, AudioSegmentMetadata } from '../types/audio';
 import { detectAudioFormat, estimateBitDepth } from '../utils/audioFormatDetector';
 
-export interface SliceOptions {
-  bpm: number;
-  division: string;
-  totalSlices?: number;
-  preserveTail?: boolean;
-  sampleAccurate?: boolean;
-}
-
+/**
+ * Service for slicing audio into segments based on BPM and time divisions
+ */
 export class AudioSlicer {
   private audioContext: AudioContext;
   
@@ -18,153 +13,147 @@ export class AudioSlicer {
   }
   
   /**
-   * Slice audio buffer into segments based on musical timing
+   * Slice audio buffer into segments based on BPM and division
    */
   public sliceAudio(
-    audioBuffer: AudioBuffer, 
-    file: File,
-    options: SliceOptions
+    buffer: AudioBuffer, 
+    file: File, 
+    options: SliceOptions = { bpm: 120, division: '1/16' }
   ): AudioSegment[] {
-    const { bpm, division, totalSlices = 16, preserveTail = true, sampleAccurate = true } = options;
-    
-    // Calculate slice duration based on BPM and division
-    const beatsPerSecond = bpm / 60;
-    let divisionValue = this.getDivisionValue(division);
-    const sliceDuration = (divisionValue / beatsPerSecond);
-    
-    // Detect audio format
-    const format = detectAudioFormat(file);
-    
-    // Estimate bit depth
-    const bitDepth = estimateBitDepth(audioBuffer);
-    
     const segments: AudioSegment[] = [];
-    const timestamp = Date.now();
     
-    for (let i = 0; i < totalSlices; i++) {
-      const startTime = i * sliceDuration;
-      
-      // Break if we've reached the end of the audio
-      if (startTime >= audioBuffer.duration) {
+    // Calculate time for each slice based on BPM and division
+    const beatsPerSecond = options.bpm / 60;
+    let divisionValue = 1;
+    
+    switch (options.division) {
+      case '1/4':
+        divisionValue = 1;
         break;
+      case '1/8':
+        divisionValue = 0.5;
+        break;
+      case '1/16':
+        divisionValue = 0.25;
+        break;
+      case '1/32':
+        divisionValue = 0.125;
+        break;
+      default:
+        divisionValue = 0.25; // default to 1/16
+    }
+    
+    // Calculate time per slice in seconds
+    const timePerSlice = divisionValue / beatsPerSecond;
+    console.log(`Slicing audio with BPM: ${options.bpm}, division: ${options.division}, timePerSlice: ${timePerSlice}s`);
+    
+    // Calculate total number of slices
+    // If totalSlices is specified, use that instead of calculating from duration
+    const numberOfSlices = options.totalSlices || Math.floor(buffer.duration / timePerSlice);
+    console.log(`Total number of slices: ${numberOfSlices} (duration: ${buffer.duration}s)`);
+    
+    // Detect format and technical details
+    const format = detectAudioFormat(file);
+    const bitDepth = estimateBitDepth(buffer);
+    
+    // Create segments
+    for (let i = 0; i < numberOfSlices; i++) {
+      // Calculate start and end times in seconds
+      const startTime = i * timePerSlice;
+      let endTime = (i + 1) * timePerSlice;
+      
+      // Don't exceed buffer duration
+      if (endTime > buffer.duration) {
+        endTime = buffer.duration;
       }
       
-      // Calculate end time, respecting the audio buffer's duration
-      const endTime = Math.min((i + 1) * sliceDuration, audioBuffer.duration);
+      // If preserveTail is true, include the last partial slice
+      if (i === numberOfSlices - 1 && options.preserveTail && endTime < buffer.duration) {
+        endTime = buffer.duration;
+      }
       
-      // Create a slice with sample-accurate boundaries
-      const slice = this.createSlice(
-        audioBuffer, 
-        startTime, 
-        endTime, 
-        sampleAccurate
-      );
+      // Create a new buffer for this segment
+      const duration = endTime - startTime;
       
-      // Create metadata for the slice
+      // Use sample-accurate slicing if enabled
+      let segmentBuffer: AudioBuffer;
+      if (options.sampleAccurate) {
+        // Convert time to samples
+        const startSample = Math.floor(startTime * buffer.sampleRate);
+        const endSample = Math.floor(endTime * buffer.sampleRate);
+        const sampleLength = endSample - startSample;
+        
+        segmentBuffer = this.audioContext.createBuffer(
+          buffer.numberOfChannels,
+          sampleLength,
+          buffer.sampleRate
+        );
+        
+        // Copy data from original buffer to segment buffer
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+          const channelData = new Float32Array(sampleLength);
+          
+          // Get original channel data
+          const originalData = new Float32Array(buffer.length);
+          buffer.copyFromChannel(originalData, channel);
+          
+          // Copy segment data with proper sample alignment
+          for (let i = 0; i < sampleLength; i++) {
+            channelData[i] = originalData[startSample + i];
+          }
+          
+          segmentBuffer.copyToChannel(channelData, channel);
+        }
+      } else {
+        // Use time-based slicing (less accurate but possibly more efficient)
+        segmentBuffer = this.audioContext.createBuffer(
+          buffer.numberOfChannels,
+          Math.floor(duration * buffer.sampleRate),
+          buffer.sampleRate
+        );
+        
+        // Copy data from original buffer to segment buffer
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+          const channelData = new Float32Array(segmentBuffer.length);
+          
+          // Get original channel data
+          const originalData = new Float32Array(buffer.length);
+          buffer.copyFromChannel(originalData, channel);
+          
+          // Copy segment data
+          const startSample = Math.floor(startTime * buffer.sampleRate);
+          for (let i = 0; i < segmentBuffer.length; i++) {
+            if (startSample + i < originalData.length) {
+              channelData[i] = originalData[startSample + i];
+            }
+          }
+          
+          segmentBuffer.copyToChannel(channelData, channel);
+        }
+      }
+      
+      // Create metadata
       const metadata: AudioSegmentMetadata = {
         startTime,
-        duration: endTime - startTime,
-        format: format,
-        sampleRate: audioBuffer.sampleRate,
-        channels: audioBuffer.numberOfChannels,
+        duration,
+        format,
+        sampleRate: buffer.sampleRate,
+        channels: buffer.numberOfChannels,
         bitDepth,
-        timestamp,
+        timestamp: Date.now(),
         sliceIndex: i
       };
       
-      // Create a unique ID for the segment
-      const id = uuidv4();
-      
-      segments.push({
-        id,
-        buffer: slice,
+      // Create segment
+      const segment: AudioSegment = {
+        id: uuidv4(),
+        buffer: segmentBuffer,
         metadata
-      });
-
-      console.log(`Slice ${i}: startTime=${startTime}, endTime=${endTime}, sliceDuration=${sliceDuration}`);
+      };
+      
+      segments.push(segment);
     }
     
-    console.log(`Created ${segments.length} audio segments with sample-accurate boundaries`);
     return segments;
-  }
-  
-  /**
-   * Create a precise slice of audio with sample-accurate boundaries
-   */
-  private createSlice(
-    sourceBuffer: AudioBuffer, 
-    startTime: number, 
-    endTime: number,
-    sampleAccurate: boolean
-  ): AudioBuffer {
-    // Calculate sample positions
-    const sampleRate = sourceBuffer.sampleRate;
-    const startSample = Math.floor(startTime * sampleRate);
-    const endSample = Math.ceil(endTime * sampleRate);
-    const sliceLength = endSample - startSample;
-    
-    // Create a new buffer for the slice
-    const sliceBuffer = this.audioContext.createBuffer(
-      sourceBuffer.numberOfChannels,
-      sliceLength,
-      sampleRate
-    );
-    
-    // Copy data from the source buffer to the slice buffer for each channel
-    for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
-      // Get the entire channel data
-      const channelData = new Float32Array(sourceBuffer.length);
-      sourceBuffer.copyFromChannel(channelData, channel);
-      
-      // Extract the slice data
-      const sliceData = channelData.subarray(startSample, endSample);
-      
-      // Copy to the slice buffer
-      sliceBuffer.copyToChannel(sliceData, channel);
-      
-      // Apply windowing if sample-accurate is enabled (to prevent clicks)
-      if (sampleAccurate) {
-        this.applyFades(sliceBuffer, channel, 0.005); // 5ms fade
-      }
-    }
-    
-    return sliceBuffer;
-  }
-  
-  /**
-   * Apply short fades to prevent clicks at segment boundaries
-   */
-  private applyFades(buffer: AudioBuffer, channel: number, fadeDuration: number): void {
-    const data = new Float32Array(buffer.length);
-    buffer.copyFromChannel(data, channel);
-    
-    const fadeSamples = Math.floor(fadeDuration * buffer.sampleRate);
-    
-    // Apply fade in
-    for (let i = 0; i < Math.min(fadeSamples, data.length / 2); i++) {
-      const gain = i / fadeSamples;
-      data[i] *= gain;
-    }
-    
-    // Apply fade out
-    for (let i = 0; i < Math.min(fadeSamples, data.length / 2); i++) {
-      const gain = i / fadeSamples;
-      data[data.length - 1 - i] *= gain;
-    }
-    
-    buffer.copyToChannel(data, channel);
-  }
-  
-  /**
-   * Convert division string to numerical value
-   */
-  private getDivisionValue(division: string): number {
-    switch (division) {
-      case '1/4': return 1;
-      case '1/8': return 0.5;
-      case '1/16': return 0.25;
-      case '1/32': return 0.125;
-      default: return 0.25; // Default to 1/16
-    }
   }
 }
