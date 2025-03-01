@@ -1,5 +1,5 @@
-import React from 'react';
-import { Play, Pause, Download, Mic, Square } from 'lucide-react';
+import React, { useState } from 'react';
+import { Play, Pause, Download, Mic, Square, Settings } from 'lucide-react';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -16,6 +16,8 @@ interface PlaybackControlsProps {
   onSliceRateChange: (rate: number) => void;
   onTransitionRateChange: (rate: number) => void;
   onShowRecordings: () => void;
+  stretchingQuality: 'low' | 'medium' | 'high';
+  onQualityChange: (quality: 'low' | 'medium' | 'high') => void;
 }
 
 const PlaybackControls: React.FC<PlaybackControlsProps> = ({
@@ -32,8 +34,12 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   onToggleRecording,
   onSliceRateChange,
   onTransitionRateChange,
-  onShowRecordings
+  onShowRecordings,
+  stretchingQuality,
+  onQualityChange
 }) => {
+  const [showSettings, setShowSettings] = useState(false);
+  
   return (
     <div className="flex items-center gap-2.5 bg-gray-900 p-3 rounded-lg flex-1 shadow-md">
       <div className="flex flex-col gap-1.5 w-[65%] max-w-sm">
@@ -60,7 +66,7 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           <input
             type="range"
             min="0.25"
-            max="2"
+            max="4"
             step="0.25"
             value={transitionPlaybackRate}
             onChange={(e) => onTransitionRateChange(Number(e.target.value))}
@@ -99,11 +105,61 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
             onClick={onShowRecordings}
             className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-500 transition-colors flex-shrink-0"
             title="Show Recordings"
+            data-testid="show-recordings-button"
           >
             <Download size={20} strokeWidth={2.5} />
           </button>
         )}
+
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="p-2.5 rounded-full transition-colors flex-shrink-0 bg-gray-800 text-white hover:bg-gray-700"
+          title="Time-stretching Settings"
+        >
+          <Settings size={20} strokeWidth={2} />
+        </button>
       </div>
+      
+      {showSettings && (
+        <div className="absolute right-0 top-full mt-2 bg-gray-900 p-3 rounded-lg shadow-lg z-10">
+          <h3 className="text-sm font-medium mb-2">Time-stretching Quality</h3>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="quality"
+                value="low"
+                checked={stretchingQuality === 'low'}
+                onChange={() => onQualityChange('low')}
+                className="mr-2"
+              />
+              <span className="text-sm">Low (Better Performance)</span>
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="quality"
+                value="medium"
+                checked={stretchingQuality === 'medium'}
+                onChange={() => onQualityChange('medium')}
+                className="mr-2"
+              />
+              <span className="text-sm">Medium (Balanced)</span>
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="quality"
+                value="high"
+                checked={stretchingQuality === 'high'}
+                onChange={() => onQualityChange('high')}
+                className="mr-2"
+              />
+              <span className="text-sm">High (Better Quality)</span>
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

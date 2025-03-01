@@ -23,40 +23,44 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       const { width, height } = container.getBoundingClientRect();
       const count = slices.length;
       
-      // Define size ranges with better proportions
-      const MIN_BUTTON_SIZE = 56;  // Slightly smaller minimum for more consistency
-      const MAX_BUTTON_SIZE = 120; // Reduced maximum for more uniform appearance
+      // Define boundaries for sizing
+      const MIN_BUTTON_SIZE = 52;  // Absolute minimum size for touch targets
+      const MAX_BUTTON_SIZE = 110; // Maximum size for consistency
       
-      // Calculate optimal number of columns based on slice count
+      // Calculate container aspect ratio
+      const containerAspectRatio = width / height;
+      
+      // Dynamic calculation of optimal columns based on count, aspect ratio and space
+      // This gives better results for different slice counts and screen shapes
       let optimalColumns: number;
       
-      // Simplified column count logic for predictability
-      if (count <= 4) optimalColumns = 2;
-      else if (count <= 9) optimalColumns = 3;
-      else if (count <= 16) optimalColumns = 4;
-      else if (count <= 25) optimalColumns = 5;
-      else if (count <= 36) optimalColumns = 6;
-      else if (count <= 64) optimalColumns = 8;
-      else optimalColumns = Math.ceil(Math.sqrt(count));
+      if (count <= 3) {
+        optimalColumns = count; // For small counts, use one row
+      } else {
+        // Calculate base columns from square root of count
+        const baseColumns = Math.round(Math.sqrt(count));
+        
+        // Adjust for container aspect ratio - wider containers get more columns
+        const aspectAdjustment = Math.round(baseColumns * (containerAspectRatio > 1 ? 
+                                Math.min(containerAspectRatio * 0.6, 1.5) : 1));
+        
+        // For very high counts, increase columns more aggressively
+        const densityFactor = count > 100 ? 1.2 : count > 64 ? 1.1 : 1.0;
+        
+        optimalColumns = Math.max(2, Math.round(aspectAdjustment * densityFactor));
+      }
       
-      // Calculate gap size - more consistent with slice count
-      const gapSize = count <= 25 ? 12 : count <= 64 ? 10 : 8;
-      
-      // Target size based on slice count - more gradual progression
-      let targetSize = 110;
-      if (count > 16) targetSize = 100;
-      if (count > 36) targetSize = 85;
-      if (count > 64) targetSize = 75;
-      if (count > 100) targetSize = 65;
+      // Calculate adaptive gap size based on slice count and available space
+      const gapSize = count > 100 ? 6 : count > 64 ? 8 : count > 36 ? 10 : 12;
       
       // Calculate available space
       const availableWidth = width - 16; // Account for container padding
       
-      // Calculate how many columns would fit at target size
-      const columnsAtTargetSize = Math.floor((availableWidth + gapSize) / (targetSize + gapSize));
+      // Calculate how many columns can fit with minimum size
+      const maxPossibleColumns = Math.floor((availableWidth + gapSize) / (MIN_BUTTON_SIZE + gapSize));
       
-      // Choose the smaller of optimal columns and what fits at target size
-      const columns = Math.min(optimalColumns, Math.max(2, columnsAtTargetSize));
+      // Use whichever is smaller - optimal or maximum possible
+      const columns = Math.min(optimalColumns, maxPossibleColumns);
       
       // Calculate the actual button size based on available space
       const availableSpacePerButton = (availableWidth - (gapSize * (columns - 1))) / columns;
@@ -64,18 +68,24 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       // Calculate rows needed
       const rows = Math.ceil(count / columns);
       
-      // Calculate max height per button based on container height
+      // Calculate max height per button based on available height
       const availableHeight = height - 16; // Account for container padding
-      const maxHeightPerButton = rows > 0 ? (availableHeight - (gapSize * (rows - 1))) / rows : MAX_BUTTON_SIZE;
+      const maxHeightPerButton = (availableHeight - (gapSize * (rows - 1))) / rows;
       
-      // Use the smaller dimension to maintain square aspect
+      // Use the smaller dimension to maintain square aspect and ensure fitting
       let buttonSize = Math.min(availableSpacePerButton, maxHeightPerButton);
       
-      // Apply min/max constraints
+      // Apply size constraints
       buttonSize = Math.max(MIN_BUTTON_SIZE, Math.min(MAX_BUTTON_SIZE, buttonSize));
       
+      // Apply progressive size reduction for very large counts
+      if (count > 100) {
+        const reductionFactor = Math.min(0.8, Math.max(0.6, 100 / count));
+        buttonSize *= reductionFactor;
+      }
+      
       // Update grid dimensions
-      setGridDimensions({ columns, size: buttonSize });
+      setGridDimensions({ columns, size: Math.floor(buttonSize) });
     };
     
     // Initialize layout
@@ -117,7 +127,9 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
   // Generate grid style based on calculated dimensions
   const gridStyle = useMemo(() => {
     const { columns, size } = gridDimensions;
-    const gap = Math.min(12, Math.max(8, Math.floor(size * 0.12))); // Adjusted gap ratio
+    
+    // Adaptive gap based on button size, but with a floor value
+    const gap = Math.max(6, Math.min(12, Math.floor(size * 0.12)));
     
     return {
       display: 'grid',
@@ -125,15 +137,16 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       gap: `${gap}px`,
       width: '100%',
       justifyContent: 'center',
-      padding: '8px'  // Consistent padding
+      padding: '8px'
     };
   }, [gridDimensions]);
   
-  // Calculate button style with more consistent font sizing
+  // Calculate button style with consistent font sizing
   const getButtonStyle = (index: number) => {
     const { size } = gridDimensions;
-    // More consistent font sizing formula
-    const fontSize = Math.max(14, Math.min(18, Math.floor(size / 3.5)));
+    
+    // Progressive font sizing based on button size
+    const fontSize = Math.max(13, Math.min(18, Math.floor(size / 4)));
     
     return {
       width: `${size}px`,

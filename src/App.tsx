@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'; 
-import { Loader } from 'lucide-react';
+import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
+import { Disc, Upload, Play, Pause, Download, Loader } from 'lucide-react';
 import { SliceOptions } from './types/audio';
 
 // Components
@@ -15,21 +15,61 @@ import { useAudioEngine } from './hooks/useAudioEngine';
 import { useAudioRecorder } from './hooks/useAudioRecorder';
 
 function App() {
+  // Extract values from audio engine hook
+  const {
+    audioFile,
+    audioBuffer,
+    slices,
+    isLoading,
+    activeSlice,
+    loadAudioFile,
+    processAudio,
+    playSlice,
+    updatePlaybackRate,
+    stopAllPlayback,
+    getRecordingDestination,
+    setRecordingOutput,
+    setActiveSlice,
+    reset,
+    setStretchingQuality // Add this to the destructured values
+  } = useAudioEngine();
+
+  // Extract values from audio recorder hook
+  const {
+    isRecording,
+    recordings,
+    currentlyPlaying,
+    startRecording,
+    stopRecording,
+    downloadRecording,
+    playPauseRecording,
+    deleteRecording
+  } = useAudioRecorder();
+
+  // Add console logs to debug recording state
+  useEffect(() => {
+    console.log("Recordings state updated:", recordings);
+    console.log("Has recordings:", recordings.length > 0);
+  }, [recordings]);
+
   // State for UI
   const [showConfig, setShowConfig] = useState(false);
   const [showRecordings, setShowRecordings] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [slicePlaybackRate, setSlicePlaybackRate] = useState(1);
-  const [transitionPlaybackRate, setTransitionPlaybackRate] = useState(0.5); 
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
-  const [showConfig, setShowConfig] = useState(false);
+  const [transitionPlaybackRate, setTransitionPlaybackRate] = useState(0.5);
+  const [debouncedSliceRate, setDebouncedSliceRate] = useState(1);
+  const [debouncedTransRate, setDebouncedTransRate] = useState(0.5);
+  const [bpm, setBpm] = useState(120);
+  const [division, setDivision] = useState("1/4");
+  const [stretchingQuality, setStretchingQualityState] = useState<'low' | 'medium' | 'high'>('medium');
 
-  const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const destinationNode = useRef<MediaStreamAudioDestinationNode | null>(null);
+  // Refs
+  const rateChangeTimeoutRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
+  const currentIndex = useRef<number>(-1);
   
-  // Handle rate changes with debounce - but apply immediately to active playback
+  // Handle rate changes with debounce
   useEffect(() => {
     // Apply rate immediately to any currently playing slices
     if (isPlaying || activeSlice !== -1) {
@@ -55,7 +95,7 @@ function App() {
         window.clearTimeout(rateChangeTimeoutRef.current);
       }
     };
-  }, [slicePlaybackRate, transitionPlaybackRate, isPlaying, activeSlice, updatePlaybackRate]);
+  }, [slicePlaybackRate, transitionPlaybackRate, isPlaying, activeSlice, updatePlaybackRate, debouncedTransRate]);
 
   // Handle file upload
   const handleFileUpload = async (file: File) => {
@@ -63,7 +103,15 @@ function App() {
       await loadAudioFile(file);
       setShowConfig(true);
     } catch (error) {
-      // Error handled by the hook
+      console.error("Error loading audio file:", error);
+    }
+  };
+
+  // Handle file input change
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file);
     }
   };
 
@@ -84,28 +132,41 @@ function App() {
 
   // Handle playback of a slice
   const handleSliceClick = (index: number) => {
-    // Always use current slice rate, not debounced value
-    playSlice(index, slicePlaybackRate);
+    // Pass BPM and transition speed along with slice rate
+    playSlice(index, slicePlaybackRate, bpm, transitionPlaybackRate);
   };
 
-  // Random playback logic - using current rates, not debounced
+  // Random playback logic
   const handleRestartPlayback = () => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
 
-    playbackEngine.playSegment(slices[index], { playbackRate: slicePlaybackRate });
-    console.log(`Playing slice ${index}, duration: ${slices[index].metadata.duration}s`);
-    setActiveSlice(index);
+    if (!slices || slices.length === 0) {
+      setIsPlaying(false);
+      return;
+    }
 
-    // Reset active slice after playback
-    const duration = (slices[index].metadata.duration / slicePlaybackRate) * 1000;
-    setTimeout(() => {
-      if (activeSlice === index) { // Only reset if this is still the active slice
-        setActiveSlice(-1);
-      }
-    }, Math.max(duration, 100)); // Ensure minimum duration for visual feedback
+    const playRandomSlice = () => {
+      const randomIndex = Math.floor(Math.random() * slices.length);
+      currentIndex.current = randomIndex;
+      // Pass BPM and transition speed along with slice rate
+      playSlice(randomIndex, slicePlaybackRate, bpm, transitionPlaybackRate);
+    };
+
+    // Play first random slice immediately
+    playRandomSlice();
+
+    // Set interval for subsequent slices
+    const intervalMs = calculateInterval();
+    intervalRef.current = window.setInterval(playRandomSlice, intervalMs);
+  };
+
+  // Calculate interval based on BPM and transition rate
+  const calculateInterval = () => {
+    // Simple calculation - could be enhanced with more musical timing
+    return (60 / bpm) * 1000 / transitionPlaybackRate;
   };
 
   // Toggle playback
@@ -123,80 +184,51 @@ function App() {
     }
   };
 
-  // Start/stop recording
-  const toggleRecording = () => {
+  // Toggle recording
+  const toggleRecording = async () => {
     if (isRecording) {
-      if (mediaRecorder.current) {
-        mediaRecorder.current.stop();
-      }
-      setIsRecording(false);
+      stopRecording();
+      setRecordingOutput(false);
     } else {
-      if (destinationNode.current) {
-        const chunks: Blob[] = [];
-        mediaRecorder.current = new MediaRecorder(destinationNode.current.stream);
-
-        mediaRecorder.current.ondataavailable = (e: any) => {
-          if (e.data.size > 0) {
-            chunks.push(e.data);
-          }
-        };
-
-        mediaRecorder.current.onstop = () => {
-          setRecordedChunks(chunks);
-        };
-
-        mediaRecorder.current.start();
-        setIsRecording(true);
+      // Get MediaStream from recording destination
+      const destination = getRecordingDestination();
+      if (destination) {
+        const success = await startRecording(destination.stream);
+        if (success) {
+          setRecordingOutput(true);
+        }
+      } else {
+        console.error("No recording destination available");
       }
     }
   };
 
-  // Download recorded audio
-  const downloadRecording = () => {
-    if (recordedChunks.length === 0) return;
-
-    const blob = new Blob(recordedChunks, { type: 'audio/mp3' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'slice2bliss-recording.mp3';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // Play sine wave
-  const playSineWave = () => {
-    try {
-      // Resume audio context if it's suspended
-      if (audioContext.state === 'suspended') {
-        audioContext.resume();
-      }
-
-      const oscillator = audioContext.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
-      oscillator.connect(audioContext.destination);
-      oscillator.start();
-      setTimeout(() => oscillator.stop(), 500);
-    } catch (error) {
-      console.error('Error playing sine wave:', error);
+  // Handle reset/new file
+  const handleReset = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
+    setIsPlaying(false);
+    reset();
   };
 
-  // Clean up on unmount
+  // Update the showRecordings handler in the App component
+  const handleShowRecordings = () => {
+    console.log("Show recordings clicked, recordings:", recordings.length);
+    setShowRecordings(true);
+  };
 
-  return (
-    <div className="min-h-screen bg-black text-white flex flex-col items-center p-8">
-      <header className="w-full max-w-4xl flex items-center justify-center mb-8">
-        <Disc className="text-yellow-400 mr-2" size={32} />
-        <h1 className="text-3xl font-bold">slice2bliss</h1>
-      </header>
+  // Add handler for quality change
+  const handleQualityChange = (quality: 'low' | 'medium' | 'high') => {
+    setStretchingQualityState(quality);
+    setStretchingQuality(quality);
+  };
 
-      <button onClick={playSineWave} className="bg-yellow-400 text-black px-4 py-2 rounded cursor-pointer hover:bg-yellow-300 transition-colors">
-        Play Sine Wave
-      </button>
-
-      {!audioFile ? (
+  // Render content based on app state
+  const renderContent = () => {
+    if (!audioFile) {
+      return (
         <div className="w-full max-w-4xl flex flex-col items-center justify-center p-12 border-2 border-dashed border-yellow-400 rounded-lg">
           <Upload className="text-yellow-400 mb-4" size={48} />
           <h2 className="text-xl mb-4">Upload an audio file to begin</h2>
@@ -205,146 +237,30 @@ function App() {
             <input
               type="file"
               accept="audio/*"
-              onChange={handleFileUpload}
+              onChange={handleFileInputChange}
               className="hidden"
             />
           </label>
         </div>
-      ) : showConfig ? (
-        <div className="w-full max-w-md bg-gray-900 p-8 rounded-lg shadow-lg">
-          <h2 className="text-2xl font-bold text-yellow-400 mb-6 text-center">Configure Slicing</h2>
+      );
+    }
 
-          <div className="mb-6">
-            <label className="block mb-2 font-medium">BPM</label>
-            <input
-              type="number"
-              value={bpm}
-              onChange={(e) => setBpm(Number(e.target.value))}
-              className="w-full bg-gray-800 text-white px-4 py-2 rounded"
-              min="1"
-              max="300"
-            />
-          </div>
+    if (showConfig) {
+      return (
+        <SliceConfig 
+          onApplyConfig={handleApplyConfig} 
+          audioFileName={audioFile.name}
+          initialBpm={bpm}
+          initialDivision={division}
+          onBpmChange={setBpm}
+          onDivisionChange={setDivision}
+        />
+      );
+    }
 
-          <div className="mb-8">
-            <label className="block mb-2 font-medium">Division</label>
-            <select
-              value={division}
-              onChange={(e) => setDivision(e.target.value)}
-              className="w-full bg-gray-800 text-white px-4 py-2 rounded"
-            >
-              <option value="1/4">1/4</option>
-              <option value="1/8">1/8</option>
-              <option value="1/16">1/16</option>
-              <option value="1/32">1/32</option>
-            </select>
-          </div>
-
-          <button
-            onClick={applyConfig}
-            className="w-full bg-yellow-400 text-black py-3 rounded font-bold hover:bg-yellow-300 transition-colors"
-          >
-            Slice Audio
-          </button>
-        </div>
-      ) : (
-        <div className="w-full max-w-4xl">
-          <div className="mb-6 flex flex-wrap gap-4 items-center">
-
-            <div className="flex flex-col w-full mb-4">
-              <label className="block mb-1">Slice Speed</label>
-              <div className="flex items-center gap-2">
-                <span>0.25x</span>
-                <input
-                  type="range"
-                  min="0.25"
-                  max="2"
-                  step="0.25"
-                  value={slicePlaybackRate}
-                  onChange={(e) => setSlicePlaybackRate(Number(e.target.value))}
-                  className="flex-grow h-2 appearance-none bg-gray-800 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-yellow-400"
-                />
-                <span>2x</span>
-                <span className="ml-2 bg-gray-800 px-2 py-1 rounded min-w-12 text-center">{slicePlaybackRate}x</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col w-full mb-4">
-              <label className="block mb-1">Transition Speed</label>
-              <div className="flex items-center gap-2">
-                <span>0.25x</span>
-                <input
-                  type="range"
-                  min="0.25"
-                  max="2"
-                  step="0.25"
-                  value={transitionPlaybackRate}
-                  onChange={(e) => setTransitionPlaybackRate(Number(e.target.value))}
-                  className="flex-grow h-2 appearance-none bg-gray-800 rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-yellow-400"
-                />
-                <span>2x</span>
-                <span className="ml-2 bg-gray-800 px-2 py-1 rounded min-w-12 text-center">{transitionPlaybackRate}x</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2 ml-auto">
-              <button
-                onClick={togglePlayback}
-                className="bg-yellow-400 text-black p-2 rounded-full hover:bg-yellow-300 transition-colors"
-                title={isPlaying ? "Pause" : "Play"}
-              >
-                {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-              </button>
-
-              <button
-                onClick={toggleRecording}
-                className={`p-2 rounded-full transition-colors ${
-                  isRecording
-                    ? "bg-red-500 text-white hover:bg-red-400"
-                    : "bg-gray-700 text-white hover:bg-gray-600"
-                }`}
-                title={isRecording ? "Stop Recording" : "Start Recording"}
-              >
-                <span className="block h-4 w-4 rounded-full bg-current"></span>
-              </button>
-
-              {recordedChunks.length > 0 && (
-                <button
-                  onClick={downloadRecording}
-                  className="bg-gray-700 text-white p-2 rounded-full hover:bg-gray-600 transition-colors"
-                  title="Download Recording"
-                >
-                  <Download size={24} />
-                </button>
-              )}
-            </div>
-            <div className="text-xs text-gray-400 flex gap-2 items-center">
-              <button
-                onClick={() => setShowConfig(true)}
-                className="text-yellow-400 hover:text-yellow-300"
-              >
-                Edit BPM
-              </button>
-              <span>•</span>
-              <button
-                onClick={() => {
-                  setAudioFile(null);
-                  setAudioBuffer(null);
-                  setSlices([]);
-                  setIsPlaying(false);
-                  setActiveSlice(-1);
-                  if (intervalRef.current) {
-                    clearInterval(intervalRef.current);
-                    intervalRef.current = null;
-                  }
-                }}
-                className="text-yellow-400 underline hover:text-yellow-300"
-              >
-                Upload a different file
-              </button>
-            </div>
-          </div>
-
+    return (
+      <>
+        <div className="w-full max-w-4xl mb-4">
           <PlaybackControls
             isPlaying={isPlaying}
             isRecording={isRecording}
@@ -359,8 +275,30 @@ function App() {
             onToggleRecording={toggleRecording}
             onSliceRateChange={setSlicePlaybackRate}
             onTransitionRateChange={setTransitionPlaybackRate}
-            onShowRecordings={() => setShowRecordings(true)}
+            onShowRecordings={handleShowRecordings}
+            stretchingQuality={stretchingQuality}
+            onQualityChange={handleQualityChange}
           />
+          
+          <div className="text-xs text-gray-400 flex gap-2 items-center mt-2">
+            <span className="font-medium text-white mr-2">
+              {audioFile?.name}
+            </span>
+            <span>•</span>
+            <button
+              onClick={() => setShowConfig(true)}
+              className="text-yellow-400 hover:text-yellow-300"
+            >
+              Edit BPM
+            </button>
+            <span>•</span>
+            <button
+              onClick={handleReset}
+              className="text-yellow-400 hover:text-yellow-300"
+            >
+              Upload a different file
+            </button>
+          </div>
         </div>
 
         {slices.length > 0 && (
@@ -372,12 +310,12 @@ function App() {
             />
           </div>
         )}
-      </div>
+      </>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col items-center p-4 sm:p-6 md:p-8 max-h-screen overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col items-center p-4 sm:p-6 md:p-8 h-screen overflow-hidden">
       {isLoading && (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
           <div className="bg-gray-900 p-6 rounded-lg shadow-lg flex flex-col items-center">
@@ -400,7 +338,7 @@ function App() {
       
       <Header />
 
-      <div className="w-full max-w-4xl flex-1 flex flex-col items-center justify-center">
+      <div className="w-full max-w-4xl flex-1 flex flex-col items-center justify-center overflow-hidden">
         {renderContent()}
       </div>
     </div>

@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import audioEngine, { AudioSlice } from '../services/AudioPlaybackEngine';
-import { SliceOptions } from '../types/audio';
+import { SliceOptions, PlaybackOptions, AudioSegment, AudioSegmentMetadata } from '../types/audio';
 
 export const useAudioEngine = () => {
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [slices, setSlices] = useState<AudioSlice[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeSlice, setActiveSlice] = useState<number>(-1);
@@ -31,8 +32,9 @@ export const useAudioEngine = () => {
   const loadAudioFile = useCallback(async (file: File) => {
     setIsLoading(true);
     try {
-      await audioEngine.loadFile(file);
+      const buffer = await audioEngine.loadFile(file);
       setAudioFile(file);
+      setAudioBuffer(buffer || null); // Store the audio buffer
       setSlices([]);
       audioLoaded.current = true;
       return true;
@@ -70,8 +72,8 @@ export const useAudioEngine = () => {
     audioEngine.updatePlaybackRate(rate);
   }, []);
 
-  const playSlice = useCallback((index: number, rate = 1) => {
-    audioEngine.playSlice(index, rate);
+  const playSlice = useCallback((index: number, rate = 1, bpm = 120, transitionSpeed = 1) => {
+    audioEngine.playSlice(index, rate, bpm, transitionSpeed);
     setActiveSlice(index);
     
     // Set up a small interval to track active slice from the engine
@@ -111,9 +113,14 @@ export const useAudioEngine = () => {
     return enabled;
   }, []);
 
+  const setStretchingQuality = useCallback((quality: 'low' | 'medium' | 'high') => {
+    audioEngine.setStretchingQuality(quality);
+  }, []);
+
   const reset = useCallback(() => {
     audioEngine.reset();
     setAudioFile(null);
+    setAudioBuffer(null);
     setSlices([]);
     setActiveSlice(-1);
     audioLoaded.current = false;
@@ -121,9 +128,11 @@ export const useAudioEngine = () => {
 
   return {
     audioFile,
+    audioBuffer, // Include audioBuffer in the return
     slices,
     isLoading,
     activeSlice,
+    setActiveSlice, // Include setActiveSlice in the return
     loadAudioFile,
     processAudio,
     playSlice,
@@ -132,5 +141,6 @@ export const useAudioEngine = () => {
     getRecordingDestination,
     setRecordingOutput,
     reset,
+    setStretchingQuality, // Add this to the returned object
   };
 };

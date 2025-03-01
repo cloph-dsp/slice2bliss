@@ -1,16 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SliceOptions } from '../types/audio';
 
 interface SliceConfigProps {
   onApplyConfig: (options: SliceOptions) => Promise<boolean>;
   audioFileName: string;
+  initialBpm?: number; // Add these props
+  initialDivision?: string;
+  onBpmChange?: (bpm: number) => void;
+  onDivisionChange?: (division: string) => void;
 }
 
-const SliceConfig: React.FC<SliceConfigProps> = ({ onApplyConfig, audioFileName }) => {
-  const [bpm, setBpm] = useState(120);
-  const [division, setDivision] = useState('1/16');
+const SliceConfig: React.FC<SliceConfigProps> = ({ 
+  onApplyConfig, 
+  audioFileName,
+  initialBpm = 120,
+  initialDivision = '1/16',
+  onBpmChange,
+  onDivisionChange
+}) => {
+  const [bpm, setBpm] = useState(initialBpm);
+  const [division, setDivision] = useState(initialDivision);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  
+  // Update when props change
+  useEffect(() => {
+    setBpm(initialBpm);
+  }, [initialBpm]);
+  
+  useEffect(() => {
+    setDivision(initialDivision);
+  }, [initialDivision]);
+  
+  const handleBpmChange = (value: number) => {
+    setBpm(value);
+    if (onBpmChange) {
+      onBpmChange(value);
+    }
+  };
+  
+  const handleDivisionChange = (value: string) => {
+    setDivision(value);
+    if (onDivisionChange) {
+      onDivisionChange(value);
+    }
+  };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +95,7 @@ const SliceConfig: React.FC<SliceConfigProps> = ({ onApplyConfig, audioFileName 
             min="40"
             max="300"
             value={bpm}
-            onChange={e => setBpm(Number(e.target.value))}
+            onChange={e => handleBpmChange(Number(e.target.value))}
             className="w-full p-2 bg-gray-800 border border-gray-700 rounded text-white"
             disabled={isSubmitting}
           />
@@ -74,14 +108,14 @@ const SliceConfig: React.FC<SliceConfigProps> = ({ onApplyConfig, audioFileName 
           <select
             id="division"
             value={division}
-            onChange={e => setDivision(e.target.value)}
+            onChange={e => handleDivisionChange(e.target.value)}
             className="w-full p-2 bg-gray-800 border border-gray-700 rounded text-white"
             disabled={isSubmitting}
           >
-            <option value="1/4">1/4 (Quarter Notes)</option>
-            <option value="1/8">1/8 (Eighth Notes)</option>
-            <option value="1/16">1/16 (Sixteenth Notes)</option>
-            <option value="1/32">1/32 (Thirty-second Notes)</option>
+            <option value="1/4">1/4</option>
+            <option value="1/8">1/8</option>
+            <option value="1/16">1/16</option>
+            <option value="1/32">1/32</option>
           </select>
         </div>
         

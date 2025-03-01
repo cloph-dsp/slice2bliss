@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import './styles/grid.css';
+
 /* Basic styles first - no imports */
 body {
   margin: 0;

@@ -1,5 +1,6 @@
 import { AudioSegment, PlaybackOptions, SliceOptions } from '../types/audio';
 import { AudioCache } from './AudioCache';
+import { TimeStretcher, getTimeStretcher } from './TimeStretcher';
 
 export interface AudioSlice {
   buffer: AudioBuffer;
@@ -23,6 +24,8 @@ export class AudioPlaybackEngine {
   private audioBuffer: AudioBuffer | null = null;
   private slices: AudioSlice[] = [];
   private activeSliceIndex: number = -1;
+  private timeStretcher: TimeStretcher;
+  private stretchingQuality: 'low' | 'medium' | 'high' = 'medium';
   
   constructor(
     audioContext: AudioContext, 
@@ -41,8 +44,16 @@ export class AudioPlaybackEngine {
     this.masterGainNode.connect(destination);
     
     this.recordingDestination = recordingDestination;
+    this.timeStretcher = getTimeStretcher(audioContext);
   }
   
+  /**
+   * Set time-stretching quality
+   */
+  public setStretchingQuality(quality: 'low' | 'medium' | 'high'): void {
+    this.stretchingQuality = quality;
+  }
+
   /**
    * Play an audio segment with options and enhanced error handling
    */
@@ -75,27 +86,51 @@ export class AudioPlaybackEngine {
         // Add to cache for future quick access
         this.cache.set(segment);
         
-        // Create source node
-        const source = this.audioContext.createBufferSource();
-        source.buffer = segment.buffer;
+        // Create source node with time-stretching if needed
+        let source: AudioBufferSourceNode;
         
-        // Set playback rate if specified with enhanced error handling
-        if (options.playbackRate !== undefined) {
-          const playbackRate = Math.max(0.25, Math.min(4.0, options.playbackRate));
-          try {
-            source.playbackRate.setValueAtTime(playbackRate, this.audioContext.currentTime);
-          } catch (error) {
-            console.warn("Error setting playback rate:", error);
-            // Continue with default rate if there's an error
-          }
+        if (options.playbackRate !== undefined && options.playbackRate !== 1.0) {
+          // Use time-stretcher for pitch-preserving speed change
+          source = this.timeStretcher.createTimeStretchedSource(
+            segment.buffer,
+            options.playbackRate,
+            true,  // Always preserve pitch
+            this.stretchingQuality
+          );
+        } else {
+          // Use regular source for normal playback
+          source = this.audioContext.createBufferSource();
+          source.buffer = segment.buffer;
         }
         
         // Create gain node for this source (for fades)
         const gainNode = this.audioContext.createGain();
         
-        // Setup fade parameters
-        const fadeInDuration = options.fadeInDuration || 0.015; // Default 15ms fade in
-        const fadeOutDuration = options.fadeOutDuration || 0.015; // Default 15ms fade out
+        // Calculate dynamic fade durations based on BPM and transition speed
+        let fadeInDuration = options.fadeInDuration || 0.015;  // Default 15ms fade in
+        let fadeOutDuration = options.fadeOutDuration || 0.015; // Default 15ms fade out
+        
+        // If we have bpm and transitionSpeed in options, calculate dynamic fade times
+        if (options.bpm && options.transitionSpeed) {
+          // Calculate beat duration in seconds
+          const beatDuration = 60 / options.bpm;
+          
+          // Calculate fade proportion based on transition speed
+          // Slower transitions (lower values) get longer fades as a percentage of beat
+          // 1.0 speed = 10% of beat, 0.25 speed = 40% of beat
+          const fadeInProportion = Math.min(0.4, 0.1 / Math.sqrt(options.transitionSpeed));
+          const fadeOutProportion = Math.min(0.5, 0.12 / Math.sqrt(options.transitionSpeed));
+          
+          // Calculate actual fade durations
+          fadeInDuration = Math.min(beatDuration * fadeInProportion, 0.25); // Cap at 250ms
+          fadeOutDuration = Math.min(beatDuration * fadeOutProportion, 0.35); // Cap at 350ms
+          
+          // Ensure minimum fade times for musical smoothness
+          fadeInDuration = Math.max(0.01, fadeInDuration);  // At least 10ms
+          fadeOutDuration = Math.max(0.015, fadeOutDuration); // At least 15ms
+          
+          console.log(`Dynamic fades: in=${fadeInDuration.toFixed(3)}s, out=${fadeOutDuration.toFixed(3)}s (BPM: ${options.bpm}, speed: ${options.transitionSpeed})`);
+        }
         
         // Start with zero gain for fade in
         gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
@@ -108,9 +143,6 @@ export class AudioPlaybackEngine {
         if (this.recordingDestination) {
           gainNode.connect(this.recordingDestination);
         }
-        
-        // Calculate playback rate (removed unused duration variable)
-        const playbackRate = options.playbackRate || 1;
         
         // Store references
         this.activeSourceNodes.set(segment.id, source);
@@ -154,7 +186,7 @@ export class AudioPlaybackEngine {
             }
           }
           
-          console.log(`Playing segment ${segment.id} (${sliceIndexInfo}), offset: ${offset}, duration: ${playDuration > 0 ? playDuration : 'full'}, rate: ${playbackRate}x`);
+          console.log(`Playing segment ${segment.id} (${sliceIndexInfo}), offset: ${offset}, duration: ${playDuration > 0 ? playDuration : 'full'}, rate: ${options.playbackRate || 1}x, fades: in=${fadeInDuration.toFixed(3)}s, out=${fadeOutDuration.toFixed(3)}s`);
   
           // Handle completion
           source.onended = () => {
@@ -293,7 +325,7 @@ export class AudioPlaybackEngine {
     this.cache.clear();
   }
 
-  async loadFile(file: File): Promise<void> {
+  async loadFile(file: File): Promise<AudioBuffer | null> {
     if (!this.audioContext) {
       throw new Error('Audio context not initialized');
     }
@@ -314,11 +346,11 @@ export class AudioPlaybackEngine {
                   ${this.audioBuffer.numberOfChannels} channels, 
                   ${this.audioBuffer.sampleRate}Hz`);
                   
-      return Promise.resolve();
+      return this.audioBuffer;
     } catch (error) {
       console.error('Error loading audio file:', error);
       this.audioBuffer = null;
-      return Promise.reject('Failed to load audio file');
+      return null;
     }
   }
 
@@ -326,149 +358,192 @@ export class AudioPlaybackEngine {
     console.log('AudioPlaybackEngine.sliceAudio called with options:', options);
     console.log('Audio context state:', this.audioContext?.state);
     console.log('Audio buffer exists:', !!this.audioBuffer);
+    console.log('Audio buffer details:', this.audioBuffer ? {
+      duration: this.audioBuffer.duration,
+      numberOfChannels: this.audioBuffer.numberOfChannels,
+      sampleRate: this.audioBuffer.sampleRate,
+      length: this.audioBuffer.length
+    } : 'No buffer');
   
-    if (!this.audioContext) {
-      console.error('Audio context is not initialized');
-      throw new Error('Audio context not initialized');
-    }
-  
-    if (this.audioContext.state === 'suspended') {
-      console.log('Resuming suspended audio context');
-      await this.audioContext.resume();
-    }
-  
-    if (!this.audioBuffer) {
-      console.error('Audio buffer is null or undefined');
-      throw new Error('Audio not loaded');
-    }
-  
-    const { bpm, division } = options;
+    try {
+      if (!this.audioContext) {
+        console.error('Audio context is not initialized');
+        throw new Error('Audio context not initialized');
+      }
     
-    // Calculate time per beat in seconds
-    const secondsPerBeat = 60 / bpm;
+      if (this.audioContext.state === 'suspended') {
+        console.log('Resuming suspended audio context');
+        await this.audioContext.resume();
+      }
     
-    // Calculate slice duration based on division
-    const divisionValue = this.getDivisionValue(division);
-    const sliceDuration = secondsPerBeat * divisionValue;
+      if (!this.audioBuffer) {
+        console.error('Audio buffer is null or undefined');
+        throw new Error('Audio not loaded');
+      }
     
-    console.log(`Creating slices with duration ${sliceDuration}s (BPM: ${bpm}, Division: ${division})`);
-    
-    // Create slices
-    const slices: AudioSlice[] = [];
-    let startTime = 0;
-    
-    while (startTime < this.audioBuffer.duration) {
-      // Make sure we don't exceed audio duration
-      const endTime = Math.min(startTime + sliceDuration, this.audioBuffer.duration);
-      const actualDuration = endTime - startTime;
+      const { bpm, division } = options;
       
-      // Create a new buffer for this slice
-      const sliceBuffer = this.audioContext.createBuffer(
-        this.audioBuffer.numberOfChannels,
-        Math.floor(actualDuration * this.audioBuffer.sampleRate),
-        this.audioBuffer.sampleRate
-      );
+      // Calculate time per beat in seconds
+      const secondsPerBeat = 60 / bpm;
       
-      // Copy data from the original buffer
-      for (let channel = 0; channel < this.audioBuffer.numberOfChannels; channel++) {
-        const originalData = this.audioBuffer.getChannelData(channel);
-        const sliceData = sliceBuffer.getChannelData(channel);
-        
-        const startSample = Math.floor(startTime * this.audioBuffer.sampleRate);
-        const endSample = Math.min(
-          Math.floor(endTime * this.audioBuffer.sampleRate),
-          originalData.length
-        );
-        
-        for (let i = startSample, j = 0; i < endSample; i++, j++) {
-          sliceData[j] = originalData[i];
+      // Calculate slice duration based on division
+      const divisionValue = this.getDivisionValue(division);
+      const sliceDuration = secondsPerBeat * divisionValue;
+      
+      console.log(`Creating slices with duration ${sliceDuration}s (BPM: ${bpm}, Division: ${division})`);
+      
+      // Create slices
+      const slices: AudioSlice[] = [];
+      let startTime = 0;
+      
+      while (startTime < this.audioBuffer.duration) {
+        try {
+          // Make sure we don't exceed audio duration
+          const endTime = Math.min(startTime + sliceDuration, this.audioBuffer.duration);
+          const actualDuration = endTime - startTime;
+          
+          // Create a new buffer for this slice
+          const sliceBuffer = this.audioContext.createBuffer(
+            this.audioBuffer.numberOfChannels,
+            Math.floor(actualDuration * this.audioBuffer.sampleRate),
+            this.audioBuffer.sampleRate
+          );
+          
+          // Copy data from the original buffer
+          for (let channel = 0; channel < this.audioBuffer.numberOfChannels; channel++) {
+            const originalData = this.audioBuffer.getChannelData(channel);
+            const sliceData = sliceBuffer.getChannelData(channel);
+            
+            const startSample = Math.floor(startTime * this.audioBuffer.sampleRate);
+            const endSample = Math.min(
+              Math.floor(endTime * this.audioBuffer.sampleRate),
+              originalData.length
+            );
+            
+            console.log(`Copying channel ${channel} data from sample ${startSample} to ${endSample}`);
+            
+            for (let i = startSample, j = 0; i < endSample; i++, j++) {
+              sliceData[j] = originalData[i];
+            }
+          }
+          
+          const index = slices.length;
+          slices.push({
+            buffer: sliceBuffer,
+            metadata: {
+              startTime,
+              duration: actualDuration,
+              index
+            },
+            id: `slice-${index}` // Ensure id is always set
+          });
+          
+          startTime = endTime;
+        } catch (error) {
+          console.error("Error creating slice at time", startTime, error);
+          // Continue to next slice instead of failing entire process
+          startTime += sliceDuration;
         }
       }
       
-      const index = slices.length;
-      slices.push({
-        buffer: sliceBuffer,
-        metadata: {
-          startTime,
-          duration: actualDuration,
-          index
-        },
-        id: `slice-${index}` // Ensure id is always set
-      });
+      console.log(`Created ${slices.length} slices`);
       
-      startTime = endTime;
-    }
-    
-    console.log(`Created ${slices.length} slices`);
-    
-    // Before returning slices, convert them to proper AudioSegment format
-    // to ensure compatibility with the rest of the system
-    this.slices = slices.map(slice => ({
-      ...slice,
-      metadata: {
-        ...slice.metadata,
-        sliceIndex: slice.metadata.index,
-        // Add required fields from AudioSegmentMetadata
-        sampleRate: this.audioBuffer?.sampleRate || 44100,
-        channels: this.audioBuffer?.numberOfChannels || 2,
-        timestamp: Date.now()
+      if (slices.length === 0) {
+        throw new Error("Failed to create any slices");
       }
-    }));
-    
-    return this.slices;
+      
+      // Before returning slices, convert them to proper AudioSegment format
+      // to ensure compatibility with the rest of the system
+      this.slices = slices.map(slice => ({
+        ...slice,
+        metadata: {
+          ...slice.metadata,
+          sliceIndex: slice.metadata.index,
+          // Add required fields from AudioSegmentMetadata
+          sampleRate: this.audioBuffer?.sampleRate || 44100,
+          channels: this.audioBuffer?.numberOfChannels || 2,
+          timestamp: Date.now()
+        }
+      }));
+      
+      return this.slices;
+    } catch (error) {
+      console.error("Error in sliceAudio method:", error);
+      throw error; // Re-throw so the calling function knows it failed
+    }
   }
 
-  playSlice(index: number, rate = 1): void {
+  playSlice(index: number, rate = 1, bpm = 120, transitionSpeed = 1): void {
     if (!this.audioContext || !this.masterGainNode || index >= this.slices.length) {
       return;
     }
-
+  
     // Resume audio context if it's suspended
     if (this.audioContext.state === 'suspended') {
       this.audioContext.resume();
     }
-
-    // Don't stop currently playing slice if it's the same one, just update the rate
-    if (this.activeSliceIndex === index && this.activeSourceNode) {
-      try {
-        const now = this.audioContext.currentTime;
-        this.activeSourceNode.playbackRate.setValueAtTime(
-          this.activeSourceNode.playbackRate.value, now);
-        this.activeSourceNode.playbackRate.linearRampToValueAtTime(rate, now + 0.05);
-        return; // Exit early since we're just updating the current slice
-      } catch (e) {
-        // If updating fails, continue to stop and restart
-        console.warn("Failed to update rate for current slice, restarting playback:", e);
-      }
-    }
-
+  
     // Stop any currently playing slice
     this.stopAllPlayback();
-
+  
     const slice = this.slices[index];
-    const source = this.audioContext.createBufferSource();
-    source.buffer = slice.buffer;
-    source.playbackRate.value = rate;
-    source.connect(this.masterGainNode);
     
-    // Connect to recording destination if available
-    if (this.recordingDestination) {
-      source.connect(this.recordingDestination);
+    // Create a new buffer source node with time-stretching
+    let source: AudioBufferSourceNode;
+    
+    if (rate !== 1) {
+      // Use time-stretcher for pitch-preserving playback rate
+      source = this.timeStretcher.createTimeStretchedSource(
+        slice.buffer,
+        rate,
+        true,  // Preserve pitch
+        this.stretchingQuality
+      );
+    } else {
+      // Use regular source for normal playback
+      source = this.audioContext.createBufferSource();
+      source.buffer = slice.buffer;
     }
     
-    // Store the source node so we can stop it later
-    this.sourceNodes.set(index, source);
+    // Create a gain node for volume and fades
+    const gainNode = this.audioContext.createGain();
+    gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+    
+    // Connect source → gain → master output
+    source.connect(gainNode);
+    gainNode.connect(this.masterGainNode);
+    
+    // Calculate dynamic fade durations based on BPM and transition speed
+    const beatDuration = 60 / bpm; // seconds per beat
+    
+    // Calculate fade proportions as a percentage of beat length
+    const fadeInDuration = Math.min(0.25, beatDuration * (0.1 / Math.sqrt(transitionSpeed)));
+    const fadeOutDuration = Math.min(0.35, beatDuration * (0.15 / Math.sqrt(transitionSpeed)));
+    
+    // Apply fade in
+    gainNode.gain.linearRampToValueAtTime(1, this.audioContext.currentTime + fadeInDuration);
+    
+    // Schedule fade out
+    const sliceDuration = slice.buffer.duration / (rate || 1);
+    const fadeOutStart = this.audioContext.currentTime + sliceDuration - fadeOutDuration;
+    gainNode.gain.setValueAtTime(1, fadeOutStart);
+    gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + sliceDuration);
+    
+    // Store references for later control
     this.activeSourceNode = source;
     this.activeSliceIndex = index;
+    this.sourceNodes.set(index, source);
     
-    source.start();
+    // Set up completion handler
     source.onended = () => {
+      this.activeSourceNode = null;
+      this.activeSliceIndex = -1;
       this.sourceNodes.delete(index);
-      if (this.activeSourceNode === source) {
-        this.activeSourceNode = null;
-        this.activeSliceIndex = -1;
-      }
     };
+    
+    // Start playback
+    source.start();
+    console.log(`Playing slice ${index} at rate ${rate}, BPM ${bpm}, transition speed ${transitionSpeed}, fades: in=${fadeInDuration.toFixed(3)}s, out=${fadeOutDuration.toFixed(3)}s`);
   }
 
   stopAllPlayback(): void {
@@ -565,24 +640,29 @@ export class AudioPlaybackEngine {
    * Update playback rate for all currently playing sources
    */
   public updatePlaybackRate(rate: number): void {
-    const now = this.audioContext.currentTime;
-    
-    // Update all active source nodes
-    for (const source of this.activeSourceNodes.values()) {
+    if (this.activeSourceNode) {
       try {
-        // Apply rate smoothly over a very short time to avoid clicks
-        const playbackRate = Math.max(0.25, Math.min(4.0, rate));
-        source.playbackRate.cancelScheduledValues(now);
-        source.playbackRate.setValueAtTime(source.playbackRate.value, now);
-        source.playbackRate.linearRampToValueAtTime(playbackRate, now + 0.05);
+        // For real-time rate changes, we need to use detune to preserve pitch
+        const now = this.audioContext.currentTime;
+        
+        // Apply playback rate directly (changes speed)
+        this.activeSourceNode.playbackRate.setValueAtTime(rate, now);
+        
+        // Apply inverse detune to compensate pitch (100 cents = 1 semitone)
+        const pitchCompensation = -1200 * Math.log2(rate);
+        
+        // Only try to set detune if the property exists (some older browsers might not support it)
+        if (this.activeSourceNode.detune) {
+          this.activeSourceNode.detune.setValueAtTime(pitchCompensation, now);
+        }
+        
+        console.log(`Updated playback rate to ${rate}x with pitch preservation`);
       } catch (error) {
         console.warn("Error updating playback rate:", error);
       }
     }
-    
-    console.log(`Updated playback rate to ${rate}x for ${this.activeSourceNodes.size} source(s)`);
   }
-  
+
   /**
    * Update playback rate for a specific slice
    */

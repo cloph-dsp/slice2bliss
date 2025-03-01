@@ -29,6 +29,14 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.slice-grid-container button {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.slice-grid-container button:active {
+  transform: scale(0.95);
+}
+
 /* Medium count */
 .slice-grid-container[data-slice-count="16"] button,
 .slice-grid-container[data-slice-count="17"] button,
@@ -64,6 +72,19 @@
 .slice-grid-container[data-slice-count="69"] button,
 .slice-grid-container[data-slice-count="70"] button {
   font-size: 0.75rem;
+}
+
+/* High density grid adjustments */
+.slice-grid-container[data-slice-count^="1"] button,
+.slice-grid-container[data-slice-count^="2"] button,
+.slice-grid-container[data-slice-count^="3"] button {
+  font-weight: 600;
+}
+
+/* Highest density grid (tiny buttons) */
+.slice-grid-container[data-slice-count^="1"] button,
+.slice-grid-container[data-slice-count^="2"] button {
+  font-weight: 700;
 }
 
 /* Active grid item styling */

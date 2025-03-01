@@ -51,6 +51,8 @@ export interface PlaybackOptions {
   endTime?: number;     // Position in seconds to end playback
   fadeInDuration?: number;  // Duration of fade in (seconds)
   fadeOutDuration?: number; // Duration of fade out (seconds)
+  bpm?: number;         // Beats per minute (for dynamic fade calculations)
+  transitionSpeed?: number; // Playback speed for transitions (affects fade durations)
 }
 
 /**

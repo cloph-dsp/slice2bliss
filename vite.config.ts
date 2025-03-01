@@ -16,6 +16,7 @@ export default defineConfig({
   // Let PostCSS config handle this instead
   css: {
     devSourcemap: true,
+    postcss: './postcss.config.cjs'
   },
   server: {
     hmr: {
