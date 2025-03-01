@@ -1,0 +1,134 @@
+/**
+ * Animation utilities for smooth transitions
+ */
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Fade out animation */
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.animate-fade-out {
+  animation: fadeOut 0.3s ease-in-out;
+}
+
+/* Subtle pulse animation for active elements */
+@keyframes subtlePulse {
+  0% { opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { opacity: 0.7; }
+}
+
+.animate-subtle-pulse {
+  animation: subtlePulse 2.5s infinite ease-in-out;
+}
+
+/* Pop in animation */
+@keyframes popIn {
+  0% { transform: scale(0.9); opacity: 0; }
+  70% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.animate-pop-in {
+  animation: popIn 0.3s ease-out;
+}
+
+/* Slide in from top */
+@keyframes slideFromTop {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-from-top {
+  animation: slideFromTop 0.3s ease-out;
+}
+
+/* Slide in from bottom */
+@keyframes slideFromBottom {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-from-bottom {
+  animation: slideFromBottom 0.3s ease-out;
+}
+
+/* Spin animation */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, 
+    rgba(255,255,255,0.03) 25%, 
+    rgba(255,255,255,0.08) 50%, 
+    rgba(255,255,255,0.03) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Scale transition */
+.scale-transition {
+  transition: transform 0.2s ease;
+}
+
+.scale-transition:active {
+  transform: scale(0.97);
+}
+
+/* Layout animations */
+.layout-shift {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Hover glow effect */
+.hover-glow {
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.hover-glow:hover {
+  box-shadow: 0 0 8px rgba(247, 220, 111, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Adjust animations for reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-out,
+  .animate-subtle-pulse,
+  .animate-pop-in,
+  .animate-slide-from-top,
+  .animate-slide-from-bottom,
+  .animate-spin,
+  .animate-shimmer {
+    animation: none;
+  }
+  
+  .scale-transition,
+  .layout-shift,
+  .hover-glow {
+    transition: none;
+  }
+}

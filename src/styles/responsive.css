@@ -1,0 +1,183 @@
+/**
+ * Responsive utilities for adaptive layouts
+ */
+
+/* Base responsive container */
+.responsive-container {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  transition: padding 0.3s ease;
+}
+
+/* Orientation-specific styles */
+.orientation-aware {
+  transition: all 0.3s ease;
+}
+
+/* Default (larger) touch targets for mobile */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Responsive spacing scale that adapts to screen size */
+.responsive-p {
+  padding: clamp(0.5rem, 2vw, 1rem);
+}
+
+.responsive-px {
+  padding-left: clamp(0.5rem, 2vw, 1rem);
+  padding-right: clamp(0.5rem, 2vw, 1rem);
+}
+
+.responsive-py {
+  padding-top: clamp(0.5rem, 2vw, 1rem);
+  padding-bottom: clamp(0.5rem, 2vw, 1rem);
+}
+
+.responsive-m {
+  margin: clamp(0.5rem, 2vw, 1rem);
+}
+
+.responsive-mx {
+  margin-left: clamp(0.5rem, 2vw, 1rem);
+  margin-right: clamp(0.5rem, 2vw, 1rem);
+}
+
+.responsive-my {
+  margin-top: clamp(0.5rem, 2vw, 1rem);
+  margin-bottom: clamp(0.5rem, 2vw, 1rem);
+}
+
+/* Responsive text sizing */
+.responsive-text {
+  font-size: clamp(0.875rem, 2vw, 1rem);
+}
+
+.responsive-heading {
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+  line-height: 1.2;
+}
+
+/* Screen size utility classes */
+@media (max-width: 640px) {
+  .sm-only {
+    display: block;
+  }
+  
+  .hide-sm {
+    display: none;
+  }
+}
+
+@media (min-width: 641px) {
+  .sm-only {
+    display: none;
+  }
+  
+  .hide-sm {
+    display: block;
+  }
+}
+
+/* Orientation-specific visibility */
+@media (orientation: portrait) {
+  .portrait-only {
+    display: block;
+  }
+  
+  .hide-portrait {
+    display: none;
+  }
+}
+
+@media (orientation: landscape) {
+  .portrait-only {
+    display: none;
+  }
+  
+  .hide-portrait {
+    display: block;
+  }
+}
+
+/* Dynamic font scaling */
+.dynamic-text-sm {
+  font-size: clamp(0.75rem, 1vw, 0.875rem);
+}
+
+.dynamic-text-base {
+  font-size: clamp(0.875rem, 1.5vw, 1rem);
+}
+
+.dynamic-text-lg {
+  font-size: clamp(1rem, 2vw, 1.25rem);
+}
+
+.dynamic-text-xl {
+  font-size: clamp(1.25rem, 3vw, 1.5rem);
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  .safe-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+  
+  .safe-top {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
+}
+
+/* Improved touch interactions */
+@media (pointer: coarse) {
+  .touch-improved {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    padding: 0.5rem;
+  }
+  
+  .touch-improved:active {
+    transform: scale(0.98);
+  }
+}
+
+/* Fluid grid layouts */
+.fluid-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: clamp(0.5rem, 2vw, 1rem);
+}
+
+/* Adaptive flex layouts */
+.adaptive-flex {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(0.5rem, 2vw, 1rem);
+}
+
+@media (max-width: 640px) {
+  .adaptive-flex {
+    flex-direction: column;
+  }
+}
+
+/* Animated transitions for layout changes */
+.layout-transition {
+  transition: all 0.3s ease;
+}
+
+/* Fix for mobile 100vh issue */
+.full-height {
+  height: 100vh;
+  height: -webkit-fill-available;
+  height: fill-available;
+}
+
+/* Prevent content overflow on small screens */
+.prevent-overflow {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}

@@ -1,6 +1,15 @@
 import React from 'react';
-import { Download, X, Play, Pause, Trash2 } from 'lucide-react';
-import { Recording } from '../hooks/useAudioRecorder';
+import { X, Play, Pause, Download, Trash } from 'lucide-react';
+
+interface Recording {
+  id: string;
+  name: string;
+  url: string;
+  date?: Date; // Make date optional
+  timestamp?: number; // Add timestamp as an alternative
+  size?: number;
+  duration?: number;
+}
 
 interface RecordingsListProps {
   recordings: Recording[];
@@ -19,88 +28,113 @@ const RecordingsList: React.FC<RecordingsListProps> = ({
   onDelete,
   currentlyPlaying
 }) => {
-  if (recordings.length === 0) {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-        <div className="bg-gray-900 p-6 rounded-lg shadow-lg w-full max-w-md">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-white">Recordings</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-white">
-              <X size={20} />
-            </button>
-          </div>
-          <div className="py-8 text-center text-gray-400">
-            No recordings available. Start recording to create one!
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Check if we're on a small screen
+  const isSmallScreen = window.innerWidth < 640;
+
+  const formatDuration = (seconds?: number) => {
+    if (!seconds) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatDate = (recording: Recording) => {
+    // Use date if available, otherwise create from timestamp
+    const dateObj = recording.date || (recording.timestamp ? new Date(recording.timestamp) : new Date());
+    return dateObj.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return 'Unknown size';
+    if (bytes < 1024) return bytes + ' bytes';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-      <div className="bg-gray-900 p-6 rounded-lg shadow-lg w-full max-w-md max-h-[80vh] flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-white">Recordings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+    <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div className="bg-gray-900 rounded-lg shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-800">
+          <h2 className="text-xl font-bold">Your Recordings</h2>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full hover:bg-gray-800 transition-colors"
+            aria-label="Close"
+          >
             <X size={20} />
           </button>
         </div>
-        
-        <div className="overflow-y-auto flex-1">
-          {recordings.map((recording) => (
-            <div 
-              key={recording.id} 
-              className={`border-b border-gray-700 p-3 flex items-center justify-between ${
-                currentlyPlaying === recording.id ? 'bg-gray-800' : ''
-              }`}
-            >
-              <div className="flex flex-col">
-                <span className="font-medium">{recording.name}</span>
-                <span className="text-xs text-gray-400">
-                  {new Date(recording.timestamp).toLocaleString()}
-                  {recording.duration ? ` • ${formatDuration(recording.duration)}` : ''}
-                </span>
-              </div>
-              
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onPlayPause(recording.id)}
-                  className="p-2 rounded-full transition-colors text-gray-300 hover:text-white hover:bg-gray-700"
-                  title={currentlyPlaying === recording.id ? "Pause" : "Play"}
-                >
-                  {currentlyPlaying === recording.id ? <Pause size={16} /> : <Play size={16} />}
-                </button>
-                
-                <button
-                  onClick={() => onDownload(recording.id)}
-                  className="p-2 rounded-full transition-colors text-gray-300 hover:text-white hover:bg-gray-700"
-                  title="Download"
-                >
-                  <Download size={16} />
-                </button>
-                
-                <button
-                  onClick={() => onDelete(recording.id)}
-                  className="p-2 rounded-full transition-colors text-gray-300 hover:text-red-500 hover:bg-gray-700"
-                  title="Delete"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+
+        {recordings.length === 0 ? (
+          <div className="p-6 text-center text-gray-400">
+            No recordings yet. Start recording your jam session!
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-2">
+            <ul className="divide-y divide-gray-800">
+              {recordings.map((recording) => (
+                <li key={recording.id} className="py-3 sm:py-4 px-2">
+                  <div className={`flex flex-col sm:flex-row ${isSmallScreen ? 'gap-2' : 'items-center'}`}>
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => onPlayPause(recording.id)}
+                          className={`p-2 rounded-full ${
+                            currentlyPlaying === recording.id
+                              ? "bg-yellow-500 text-black"
+                              : "bg-gray-800 text-white hover:bg-gray-700"
+                          }`}
+                          aria-label={currentlyPlaying === recording.id ? "Pause" : "Play"}
+                        >
+                          {currentlyPlaying === recording.id ? (
+                            <Pause size={16} strokeWidth={2.5} />
+                          ) : (
+                            <Play size={16} strokeWidth={2.5} />
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{recording.name}</p>
+                          <div className="flex items-center text-xs text-gray-400 space-x-2 mt-1">
+                            <span>{formatDate(recording)}</span>
+                            <span>•</span>
+                            <span>{formatDuration(recording.duration)}</span>
+                            <span>•</span>
+                            <span>{formatSize(recording.size)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className={`flex gap-2 ${isSmallScreen ? 'ml-9' : 'ml-auto'}`}>
+                      <button
+                        onClick={() => onDownload(recording.id)}
+                        className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-500 transition-colors"
+                        aria-label="Download"
+                      >
+                        <Download size={16} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(recording.id)}
+                        className="p-2 bg-red-600 text-white rounded-full hover:bg-red-500 transition-colors"
+                        aria-label="Delete"
+                      >
+                        <Trash size={16} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
 };
-
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-}
 
 export default RecordingsList;

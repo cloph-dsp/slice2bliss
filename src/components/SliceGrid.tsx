@@ -12,6 +12,7 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
   const containerRef = useRef<HTMLDivElement>(null);
   const [isOverflowed, setIsOverflowed] = useState(false);
   const [gridDimensions, setGridDimensions] = useState({ columns: 4, size: 80 });
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
   
   // Calculate optimal grid layout based on container size and slice count
   useEffect(() => {
@@ -24,38 +25,52 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       const { width, height } = container.getBoundingClientRect();
       const count = slices.length;
       
+      // Update orientation state
+      setOrientation(width > height ? 'landscape' : 'portrait');
+      
       // Define boundaries for sizing
-      const MIN_BUTTON_SIZE = 52;  // Absolute minimum size for touch targets
-      const MAX_BUTTON_SIZE = 110; // Maximum size for consistency
+      const MIN_BUTTON_SIZE = Math.max(40, Math.min(52, width / 8));  // Adaptive minimum size
+      const MAX_BUTTON_SIZE = Math.min(110, width / 3); // Adaptive maximum size
       
       // Calculate container aspect ratio
       const containerAspectRatio = width / height;
       
       // Dynamic calculation of optimal columns based on count, aspect ratio and space
-      // This gives better results for different slice counts and screen shapes
       let optimalColumns: number;
       
       if (count <= 3) {
         optimalColumns = count; // For small counts, use one row
+      } else if (count <= 8) {
+        // For small-medium counts, use intuitive layouts
+        optimalColumns = containerAspectRatio > 1.5 ? 4 : containerAspectRatio > 1 ? 3 : 2;
       } else {
         // Calculate base columns from square root of count
         const baseColumns = Math.round(Math.sqrt(count));
         
-        // Adjust for container aspect ratio - wider containers get more columns
-        const aspectAdjustment = Math.round(baseColumns * (containerAspectRatio > 1 ? 
-                                Math.min(containerAspectRatio * 0.6, 1.5) : 1));
+        // Adjust more aggressively based on aspect ratio
+        const aspectMultiplier = containerAspectRatio > 1.5 ? 1.4 : // very wide
+                               containerAspectRatio > 1 ? 1.2 : // landscape
+                               0.8; // portrait
         
-        // For very high counts, increase columns more aggressively
-        const densityFactor = count > 100 ? 1.2 : count > 64 ? 1.1 : 1.0;
+        const aspectAdjustedColumns = Math.round(baseColumns * aspectMultiplier);
         
-        optimalColumns = Math.max(2, Math.round(aspectAdjustment * densityFactor));
+        // For very high counts, adjust columns more precisely
+        const densityFactor = count > 100 ? 1.3 : 
+                            count > 64 ? 1.2 : 
+                            count > 36 ? 1.1 : 1.0;
+        
+        optimalColumns = Math.max(2, Math.round(aspectAdjustedColumns * densityFactor));
       }
       
-      // Calculate adaptive gap size based on slice count and available space
-      const gapSize = count > 100 ? 6 : count > 64 ? 8 : count > 36 ? 10 : 12;
+      // Calculate adaptive gap size based on slice count, screen size and available space
+      const gapSize = width < 480 ? 
+                     (count > 32 ? 4 : 6) : // small screens
+                     count > 100 ? 6 : 
+                     count > 64 ? 8 : 
+                     count > 36 ? 10 : 12;
       
       // Calculate available space
-      const availableWidth = width - 16; // Account for container padding
+      const availableWidth = width - (width < 640 ? 8 : 16); // Less padding on small screens
       
       // Calculate how many columns can fit with minimum size
       const maxPossibleColumns = Math.floor((availableWidth + gapSize) / (MIN_BUTTON_SIZE + gapSize));
@@ -70,7 +85,7 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       const rows = Math.ceil(count / columns);
       
       // Calculate max height per button based on available height
-      const availableHeight = height - 16; // Account for container padding
+      const availableHeight = height - (width < 640 ? 8 : 16);
       const maxHeightPerButton = (availableHeight - (gapSize * (rows - 1))) / rows;
       
       // Use the smaller dimension to maintain square aspect and ensure fitting
@@ -83,6 +98,9 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       if (count > 100) {
         const reductionFactor = Math.min(0.8, Math.max(0.6, 100 / count));
         buttonSize *= reductionFactor;
+      } else if (count > 64) {
+        const reductionFactor = Math.min(0.9, Math.max(0.7, 64 / count));
+        buttonSize *= reductionFactor;
       }
       
       // Update grid dimensions
@@ -92,12 +110,18 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
     // Initialize layout
     updateGridLayout();
     
-    // Set up resize observer
+    // Set up resize observer for container size changes
     const resizeObserver = new ResizeObserver(() => {
       updateGridLayout();
     });
     
     resizeObserver.observe(containerRef.current);
+    
+    // Also listen for window resize events (some mobile browsers need this)
+    window.addEventListener('resize', updateGridLayout);
+    
+    // Handle orientation change specifically for mobile
+    window.addEventListener('orientationchange', updateGridLayout);
     
     // Clean up
     return () => {
@@ -105,6 +129,8 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
         resizeObserver.unobserve(containerRef.current);
       }
       resizeObserver.disconnect();
+      window.removeEventListener('resize', updateGridLayout);
+      window.removeEventListener('orientationchange', updateGridLayout);
     };
   }, [slices.length]);
   
@@ -130,7 +156,7 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
     const { columns, size } = gridDimensions;
     
     // Adaptive gap based on button size, but with a floor value
-    const gap = Math.max(6, Math.min(12, Math.floor(size * 0.12)));
+    const gap = Math.max(4, Math.min(12, Math.floor(size * 0.1)));
     
     return {
       display: 'grid',
@@ -138,16 +164,16 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       gap: `${gap}px`,
       width: '100%',
       justifyContent: 'center',
-      padding: '8px'
+      padding: orientation === 'portrait' && window.innerWidth < 480 ? '4px' : '8px'
     };
-  }, [gridDimensions]);
+  }, [gridDimensions, orientation]);
   
   // Calculate button style with consistent font sizing
   const getButtonStyle = (index: number) => {
     const { size } = gridDimensions;
     
     // Progressive font sizing based on button size
-    const fontSize = Math.max(13, Math.min(18, Math.floor(size / 4)));
+    const fontSize = Math.max(12, Math.min(18, Math.floor(size / 4)));
     
     return {
       width: `${size}px`,
@@ -160,8 +186,9 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
   return (
     <div 
       ref={containerRef}
-      className={`slice-grid-container overflow-y-auto w-full h-full pb-2 px-0 ${isOverflowed ? 'overflowed' : ''}`}
+      className={`slice-grid-container overflow-y-auto w-full h-full pb-2 px-0 ${isOverflowed ? 'overflowed' : ''} ${orientation}`}
       data-slice-count={slices.length}
+      data-orientation={orientation}
     >
       <div style={gridStyle} className="w-full">
         {slices.map((slice, index) => {
@@ -182,12 +209,12 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
               aria-pressed={isActive}
             >
               {/* Waveform background */}
-              <div className="absolute inset-0 flex items-center justify-center opacity-30">
+              <div className={`absolute inset-0 flex items-center justify-center opacity-30 ${slices.length > 36 ? 'hidden sm:flex' : ''}`}>
                 <AudioWaveform
                   buffer={slice.buffer}
-                  color={isActive ? "#ffffff" : "#f7dc6f"} // Changed from emerald to yellow
-                  width={gridDimensions.size - 10}
-                  height={Math.floor(gridDimensions.size / 2)}
+                  color={isActive ? "#ffffff" : "#f7dc6f"}
+                  width={Math.max(30, gridDimensions.size - 10)}
+                  height={Math.max(15, Math.floor(gridDimensions.size / 2))}
                   className="z-0"
                 />
               </div>

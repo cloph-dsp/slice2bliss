@@ -8,14 +8,56 @@
   position: relative;
 }
 
+/* Base responsive classes for different orientations */
+.slice-grid-container.portrait {
+  max-height: calc(100% - 60px);
+}
+
+.slice-grid-container.landscape {
+  max-height: calc(100% - 30px);
+}
+
 /* Optimize for different device sizes */
 @media (max-width: 640px) {
+  .slice-grid-container {
+    margin-top: -8px;
+  }
+  
   .slice-grid-container[data-slice-count="1"] button,
   .slice-grid-container[data-slice-count="2"] button,
   .slice-grid-container[data-slice-count="3"] button,
   .slice-grid-container[data-slice-count="4"] button {
-    min-width: 100px;
-    min-height: 100px;
+    min-width: 60px;
+    min-height: 60px;
+  }
+  
+  .slice-grid-container::after {
+    height: 20px;
+  }
+}
+
+/* Further optimization for very small screens */
+@media (max-width: 380px) {
+  .slice-grid-container[data-slice-count="1"] button,
+  .slice-grid-container[data-slice-count="2"] button,
+  .slice-grid-container[data-slice-count="3"] button,
+  .slice-grid-container[data-slice-count="4"] button {
+    min-width: 50px;
+    min-height: 50px;
+    font-size: 1rem;
+  }
+}
+
+/* Specific adjustments for different orientations on mobile */
+@media (max-width: 767px) and (orientation: portrait) {
+  .slice-grid-container {
+    max-height: 60vh;  /* Give more room to the grid in portrait */
+  }
+}
+
+@media (max-width: 767px) and (orientation: landscape) {
+  .slice-grid-container {
+    max-height: 70vh;  /* Optimize for side-by-side layout in landscape */
   }
 }
 
@@ -79,12 +121,6 @@
 .slice-grid-container[data-slice-count^="2"] button,
 .slice-grid-container[data-slice-count^="3"] button {
   font-weight: 600;
-}
-
-/* Highest density grid (tiny buttons) */
-.slice-grid-container[data-slice-count^="1"] button,
-.slice-grid-container[data-slice-count^="2"] button {
-  font-weight: 700;
 }
 
 /* Active grid item styling */

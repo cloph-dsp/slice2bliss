@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
 import { Disc, Upload, Play, Pause, Download, Loader } from 'lucide-react';
 import { SliceOptions } from './types/audio';
+import { Recording as RecorderRecording } from './hooks/useAudioRecorder';
 
 // Components
 import Header from './components/Header'; 
@@ -63,6 +64,7 @@ function App() {
   const [bpm, setBpm] = useState(120);
   const [division, setDivision] = useState("1/4");
   const [stretchingQuality, setStretchingQualityState] = useState<'low' | 'medium' | 'high'>('medium');
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
 
   // Refs
   const rateChangeTimeoutRef = useRef<number | null>(null);
@@ -225,6 +227,27 @@ function App() {
     setStretchingQuality(quality);
   };
 
+  // Add proper type definitions to the function
+  const formatRecordingsForList = (recordings: RecorderRecording[]): Recording[] => {
+    return recordings.map(recording => ({
+      ...recording,
+      date: recording.timestamp ? new Date(recording.timestamp) : new Date(),
+      url: recording.url || ''
+    }));
+  };
+
+  // Detect mobile device on mount
+  useEffect(() => {
+    const checkMobile = () => {
+      const width = window.innerWidth;
+      setIsMobileDevice(width < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Render content based on app state
   const renderContent = () => {
     if (!audioFile) {
@@ -315,7 +338,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col items-center p-4 sm:p-6 md:p-8 h-screen overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col items-center p-2 sm:p-4 md:p-8 h-screen overflow-hidden">
       {isLoading && (
         <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
           <div className="bg-gray-900 p-6 rounded-lg shadow-lg flex flex-col items-center">
@@ -327,7 +350,7 @@ function App() {
       
       {showRecordings && (
         <RecordingsList
-          recordings={recordings}
+          recordings={formatRecordingsForList(recordings)}
           onClose={() => setShowRecordings(false)}
           onDownload={downloadRecording}
           onPlayPause={playPauseRecording}
@@ -336,13 +359,27 @@ function App() {
         />
       )}
       
-      <Header />
+      <Header compact={isMobileDevice} />
 
       <div className="w-full max-w-4xl flex-1 flex flex-col items-center justify-center overflow-hidden">
         {renderContent()}
       </div>
+      
+      {/* Additional spacing at bottom for mobile */}
+      {isMobileDevice && <div className="h-2 w-full"></div>}
     </div>
   );
+}
+
+// Define the Recording interface that RecordingsList expects
+interface Recording {
+  id: string;
+  name: string;
+  url: string;
+  date: Date;
+  timestamp?: number;
+  size?: number;
+  duration?: number;
 }
 
 export default App;
