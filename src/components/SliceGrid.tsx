@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { AudioSlice } from '../services/AudioPlaybackEngine';
+import AudioWaveform from './AudioWaveform';
 
 interface SliceGridProps {
   slices: AudioSlice[];
@@ -163,20 +164,49 @@ const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick
       data-slice-count={slices.length}
     >
       <div style={gridStyle} className="w-full">
-        {slices.map((slice, index) => (
-          <button
-            key={slice.id || `slice-${index}`}
-            onClick={() => onSliceClick(index)}
-            style={getButtonStyle(index)}
-            className={`rounded-lg ${
-              activeSlice === index
-                ? 'bg-yellow-400 text-black shadow-md shadow-yellow-400/20'
-                : 'bg-gray-800 text-white hover:bg-yellow-600 hover:text-white'
-            } transition-colors duration-200 flex items-center justify-center font-medium`}
-          >
-            {index + 1}
-          </button>
-        ))}
+        {slices.map((slice, index) => {
+          const isActive = activeSlice === index;
+          return (
+            <button
+              key={slice.id || `slice-${index}`}
+              onClick={() => onSliceClick(index)}
+              style={getButtonStyle(index)}
+              className={`
+                rounded-lg overflow-hidden relative
+                ${isActive 
+                  ? 'playing active-slice-animation' 
+                  : 'bg-slate-800 hover:bg-slate-700'}
+                transition-all duration-200 flex items-center justify-center
+              `}
+              aria-label={`Slice ${index + 1}`}
+              aria-pressed={isActive}
+            >
+              {/* Waveform background */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-30">
+                <AudioWaveform
+                  buffer={slice.buffer}
+                  color={isActive ? "#ffffff" : "#f7dc6f"} // Changed from emerald to yellow
+                  width={gridDimensions.size - 10}
+                  height={Math.floor(gridDimensions.size / 2)}
+                  className="z-0"
+                />
+              </div>
+              
+              {/* Active slice animation overlay */}
+              {isActive && (
+                <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 to-yellow-500 z-0 animate-pulse-subtle"></div>
+              )}
+              
+              {/* Slice number */}
+              <span className={`
+                relative z-10 font-medium 
+                ${isActive ? 'text-black' : 'text-slate-200'}
+              `}>
+                {index + 1}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

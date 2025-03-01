@@ -1,25 +1,114 @@
 /**
- * Apply short fades to prevent clicks at segment boundaries
+ * Utilities for audio processing and visualization
  */
-export function applyFades(buffer: AudioBuffer, channel: number, fadeDuration: number): void {
-  const data = new Float32Array(buffer.length);
-  buffer.copyFromChannel(data, channel);
 
-  const fadeSamples = Math.floor(fadeDuration * buffer.sampleRate);
-
-  // Apply fade in
-  for (let i = 0; i < Math.min(fadeSamples, data.length / 2); i++) {
-    const gain = i / fadeSamples;
-    data[i] *= gain;
+/**
+ * Generate waveform data from an AudioBuffer
+ * @param buffer The audio buffer to analyze
+ * @param numPoints Number of data points to generate
+ * @returns Array of normalized amplitude values (0-1)
+ */
+export function generateWaveformData(buffer: AudioBuffer, numPoints: number = 100): number[] {
+  const channelData = buffer.getChannelData(0); // Use first channel
+  const blockSize = Math.floor(channelData.length / numPoints);
+  const waveform: number[] = [];
+  
+  for (let i = 0; i < numPoints; i++) {
+    const startIndex = i * blockSize;
+    const endIndex = Math.min(startIndex + blockSize, channelData.length);
+    
+    // Find max amplitude in this block
+    let max = 0;
+    for (let j = startIndex; j < endIndex; j++) {
+      const abs = Math.abs(channelData[j]);
+      if (abs > max) max = abs;
+    }
+    
+    waveform.push(max);
   }
+  
+  return waveform;
+}
 
-  // Apply fade out
-  for (let i = 0; i < Math.min(fadeSamples, data.length / 2); i++) {
-    const gain = i / fadeSamples;
-    data[data.length - 1 - i] *= gain;
+/**
+ * Generate a color gradient for waveform visualization based on frequency content
+ * @param buffer Audio buffer to analyze
+ * @returns Color string (hex or rgba)
+ */
+export function getAudioColorTone(buffer: AudioBuffer): string {
+  // Simple implementation - could be enhanced with real frequency analysis
+  // Analyze amplitude characteristics to guess audio type
+  const channelData = buffer.getChannelData(0);
+  
+  // Calculate RMS (root mean square) amplitude
+  let sum = 0;
+  for (let i = 0; i < channelData.length; i++) {
+    sum += channelData[i] * channelData[i];
   }
+  const rms = Math.sqrt(sum / channelData.length);
+  
+  // Calculate peak-to-RMS ratio (crest factor)
+  let peak = 0;
+  for (let i = 0; i < channelData.length; i++) {
+    const abs = Math.abs(channelData[i]);
+    if (abs > peak) peak = abs;
+  }
+  const crestFactor = peak / rms;
+  
+  // Use characteristics to determine color - now all in yellow shades
+  // Higher crest factor = more transients/percussive = brighter yellows
+  // Lower crest factor = more sustained/tonal = deeper yellows
+  
+  if (crestFactor > 4) {
+    // Very percussive sounds (drums, etc)
+    return '#fef08a'; // yellow-200
+  } else if (crestFactor > 3) {
+    // Moderately percussive
+    return '#fde047'; // yellow-300
+  } else if (crestFactor > 2) {
+    // Balanced sounds
+    return '#facc15'; // yellow-400
+  } else {
+    // Sustained sounds (pads, etc)
+    return '#eab308'; // yellow-500
+  }
+}
 
-  buffer.copyToChannel(data, channel);
+/**
+ * Apply fade in/out to avoid clicks
+ * @param buffer Audio buffer to modify
+ * @param fadeInTime Fade in time in seconds
+ * @param fadeOutTime Fade out time in seconds
+ * @returns Modified buffer with fades applied
+ */
+export function applyFades(
+  buffer: AudioBuffer, 
+  fadeInTime: number = 0.01, 
+  fadeOutTime: number = 0.01
+): AudioBuffer {
+  // Convert fade times to samples
+  const fadeInSamples = Math.floor(fadeInTime * buffer.sampleRate);
+  const fadeOutSamples = Math.floor(fadeOutTime * buffer.sampleRate);
+  
+  // Apply fades to each channel
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const channelData = buffer.getChannelData(c);
+    
+    // Apply fade in
+    for (let i = 0; i < fadeInSamples && i < channelData.length; i++) {
+      const gain = i / fadeInSamples;
+      channelData[i] *= gain;
+    }
+    
+    // Apply fade out
+    const fadeOutStart = channelData.length - fadeOutSamples;
+    for (let i = fadeOutStart; i < channelData.length; i++) {
+      const gain = (channelData.length - i) / fadeOutSamples;
+      channelData[i] *= gain;
+    }
+  }
+  
+  return buffer;
 }
 
 /**

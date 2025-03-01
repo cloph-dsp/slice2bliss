@@ -147,6 +147,55 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 
+/* Add these styles to your existing CSS */
+
+@keyframes pulse-subtle {
+  0% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s infinite ease-in-out;
+}
+
+.active-slice-animation {
+  background-color: transparent;
+  box-shadow: 0 0 0 2px rgba(247, 220, 111, 0.8), 0 0 15px rgba(247, 220, 111, 0.5);
+  transform: translateY(-2px) scale(1.03);
+  position: relative;
+  z-index: 10;
+}
+
+/* Improve waveform visualization */
+.slice-waveform {
+  transition: opacity 0.3s ease;
+}
+
+/* Waveform animation for active slice */
+@keyframes waveform-glow {
+  0% {
+    filter: drop-shadow(0 0 2px rgba(247, 220, 111, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 5px rgba(247, 220, 111, 0.8));
+  }
+  100% {
+    filter: drop-shadow(0 0 2px rgba(247, 220, 111, 0.5));
+  }
+}
+
+.active-slice-animation .slice-waveform {
+  animation: waveform-glow 2s infinite ease-in-out;
+  opacity: 0.9;
+}
+
 /* Loading animation */
 @keyframes spin {
   0% { transform: rotate(0deg); }
