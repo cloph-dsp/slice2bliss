@@ -1,13 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AudioSegment, SliceOptions, AudioSegmentMetadata } from '../types/audio';
 import { detectAudioFormat, estimateBitDepth } from '../utils/audioFormatDetector';
+import { applyFades } from '../utils/audioUtils';
 
 /**
  * Service for slicing audio into segments based on BPM and time divisions
  */
 export class AudioSlicer {
   private audioContext: AudioContext;
-  
+
   constructor(audioContext: AudioContext) {
     this.audioContext = audioContext;
   }
