@@ -10,7 +10,7 @@ const __dirname = dirname(__filename);
 export default defineConfig({
   root: resolve(__dirname),
   plugins: [react()],
-  base: './', // Use relative paths
+  base: '/', // Use absolute paths
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
@@ -24,15 +24,14 @@ export default defineConfig({
     hmr: {
       overlay: true
     },
-    headers: {
-      'Permissions-Policy': 'interest-cohort=()',
-    }
+    // Remove problematic header
+    headers: {}
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
   build: {
-    outDir: 'd:/Github/slice2bliss/dist',
+    outDir: resolve(__dirname, 'dist'),
     assetsDir: 'assets',
     emptyOutDir: true,
     rollupOptions: {
