@@ -98,12 +98,14 @@ export class TimeStretcher {
     source.buffer = buffer;
     source.playbackRate.value = timeRatio;
     
-    // Apply pitch compensation using detune
-    // detune is in cents (100 cents = 1 semitone)
-    const pitchCompensation = -1200 * Math.log2(timeRatio);
-    source.detune.value = pitchCompensation;
+    // Apply pitch compensation using detune, but only if the property exists
+    if (source.detune) {
+      // detune is in cents (100 cents = 1 semitone)
+      const pitchCompensation = -1200 * Math.log2(timeRatio);
+      source.detune.value = pitchCompensation;
+    }
     
-    // For a real implementation, we'd create a custom AudioWorklet 
+    // For a real implementation, we'd create a custom AudioWorklet
     // that performs proper granular time-stretching here.
     
     // Add uniqueID for tracking this source
