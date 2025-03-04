@@ -1,4 +1,4 @@
-name: GitHub Pages Deploy
+name: Deploy to GitHub Pages
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build-and-deploy:
@@ -30,6 +32,17 @@ jobs:
           GITHUB_PAGES: 'true'
           GITHUB_ACTIONS: 'true'
 
+      - name: Create .nojekyll file
+        run: touch dist/.nojekyll
+
+      # Fix paths if needed
+      - name: Ensure proper relative paths
+        run: |
+          # Ensure all paths in HTML files are relative
+          find dist -name "*.html" -exec sed -i 's|src="/|src="./|g' {} \;
+          find dist -name "*.html" -exec sed -i 's|href="/|href="./|g' {} \;
+          
+      # Verify build output for debugging purposes
       - name: Verify build output
         run: |
           echo "Checking dist directory content:"
