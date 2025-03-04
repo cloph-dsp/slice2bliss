@@ -10,7 +10,7 @@ const __dirname = dirname(__filename);
 export default defineConfig({
   root: resolve(__dirname),
   plugins: [react()],
-  base: '/slice2bliss/',
+  base: './', // Use relative paths
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
@@ -25,7 +25,7 @@ export default defineConfig({
       overlay: true
     },
     headers: {
-      'Permissions-Policy': '',
+      'Permissions-Policy': 'interest-cohort=()',
     }
   },
   optimizeDeps: {
