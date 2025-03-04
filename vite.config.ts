@@ -23,13 +23,16 @@ export default defineConfig({
   server: {
     hmr: {
       overlay: true
+    },
+    headers: {
+      'Permissions-Policy': '',
     }
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
   build: {
-    outDir: 'dist',
+    outDir: 'd:/Github/slice2bliss/dist',
     assetsDir: 'assets',
     emptyOutDir: true,
     rollupOptions: {
