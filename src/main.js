@@ -1,5 +1,17 @@
 import { getAssetPath, config } from './config.js';
 
+// Add a helper function to get proper relative URLs
+function getRelativePath(path) {
+  // Remove leading slash if present
+  if (path.startsWith('/slice2bliss/')) {
+    return '.' + path.substring('/slice2bliss'.length);
+  }
+  if (path.startsWith('/')) {
+    return '.' + path;
+  }
+  return path;
+}
+
 // Wrap initialization code in a DOMContentLoaded event to ensure DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize your application here
@@ -20,7 +32,7 @@ function loadResources() {
     // Example of loading resources with proper path handling
     try {
         // Use getAssetPath for any dynamically loaded resources
-        const resourcePath = getAssetPath('assets/data.json');
+        const resourcePath = getRelativePath('/slice2bliss/assets/data.json');
         console.log(`Loading resource from: ${resourcePath}`);
         
         // Example fetch with error handling
