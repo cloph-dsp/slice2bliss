@@ -46,7 +46,6 @@ function App() {
 
   const isLoading = hookLoading || localLoading;
 
-  // Extract values from audio recorder hook
   const {
     isRecording,
     recordings,
@@ -58,7 +57,6 @@ function App() {
     deleteRecording,
   } = useAudioRecorder();
 
-  // Add console logs to debug recording state
   useEffect(() => {
     console.log("Recordings state updated:", recordings);
     console.log("Has recordings:", recordings.length > 0);
