@@ -27,5 +27,4 @@
 4. Open your browser and navigate to `http://localhost:3000`
 
 
-Contributions are welcome!
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Contributions are welcome! This project is licensed under the MIT License.
