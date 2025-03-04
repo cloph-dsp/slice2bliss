@@ -181,3 +181,27 @@
   overflow-wrap: break-word;
   word-break: break-word;
 }
+
+/* Responsive styles */
+@media screen and (max-width: 768px) {
+  .grid-container {
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    gap: 8px;
+  }
+  
+  /* Mobile optimizations */
+  .mobile-hidden {
+    display: none;
+  }
+  
+  .mobile-compact {
+    padding: 0.5rem !important;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .grid-container {
+    grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+    gap: 5px;
+  }
+}

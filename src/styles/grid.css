@@ -146,3 +146,28 @@
 .slice-grid-container.overflowed::after {
   opacity: 1;
 }
+
+/* Grid styles */
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+}
+
+.grid-container::before {
+  content: '';
+  width: 0;
+  padding-bottom: 100%;
+  grid-row: 1 / 1;
+  grid-column: 1 / 1;
+}
+
+.grid-item {
+  position: relative;
+  width: 100%;
+  height: 0;
+  padding-bottom: 100%;
+}
