@@ -28,11 +28,14 @@ jobs:
         run: npm run build:gh-pages
         env:
           GITHUB_PAGES: 'true'
+          GITHUB_ACTIONS: 'true'
 
-      - name: Prepare for deployment
+      - name: Verify build output
         run: |
-          touch dist/.nojekyll
-          cp dist/index.html dist/404.html
+          echo "Checking dist directory content:"
+          ls -la dist/
+          echo "Checking if main assets exist:"
+          ls -la dist/assets/ || echo "No assets directory found"
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4

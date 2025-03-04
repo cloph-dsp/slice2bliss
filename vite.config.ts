@@ -19,11 +19,13 @@ export default defineConfig(({ mode }) => {
   return {
     root: resolve(__dirname),
     plugins: [react()],
-    base: base, // Set the correct base path
+    base, // Set the correct base path
     resolve: {
       alias: {
         '@': resolve(__dirname, './src')
-      }
+      },
+      // IMPORTANT: Add extensions to ensure Vite can resolve modules properly
+      extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json']
     },
     css: {
       devSourcemap: true,
@@ -33,7 +35,6 @@ export default defineConfig(({ mode }) => {
       hmr: {
         overlay: true
       },
-      // No headers that could cause issues
     },
     optimizeDeps: {
       exclude: ['lucide-react'],
@@ -44,22 +45,15 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       copyPublicDir: true,
       minify: 'terser',
-      terserOptions: {
-        compress: {
-          drop_console: isGitHubPages, // Remove console logs in GitHub Pages build
-        },
-      },
-      // Add source maps for easier debugging
-      sourcemap: !isGitHubPages,
+      // IMPORTANT: Name the entry point with a fixed name for easier reference
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+        },
         output: {
-          manualChunks: {
-            react: ['react', 'react-dom'],
-            vendor: ['lucide-react'],
-          },
-          entryFileNames: 'assets/[name].[hash].js',
-          chunkFileNames: 'assets/[name].[hash].js',
-          assetFileNames: 'assets/[name].[hash].[ext]',
+          entryFileNames: 'assets/[name].js',
+          chunkFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'assets/[name]-[hash].[ext]',
         }
       }
     }
