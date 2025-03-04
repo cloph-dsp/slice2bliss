@@ -19,17 +19,20 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 16
+          cache: 'npm'
 
       - name: Install Dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Build for GitHub Pages
+        run: npm run build:gh-pages
         env:
           GITHUB_PAGES: 'true'
 
-      - name: Add .nojekyll file
-        run: touch dist/.nojekyll
+      - name: Prepare for deployment
+        run: |
+          touch dist/.nojekyll
+          cp dist/index.html dist/404.html
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4

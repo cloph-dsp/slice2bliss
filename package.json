@@ -1,11 +1,12 @@
 {
   "name": "slice2bliss",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite build -c vite.config.js",
+    "build": "tsc && vite build",
+    "build:gh-pages": "tsc && GITHUB_PAGES=true vite build",
     "preview": "vite preview"
   },
   "dependencies": {
