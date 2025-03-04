@@ -99,15 +99,18 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
               <div className="text-xs font-medium">Trans</div>
               <div className="text-xs text-gray-400">{transitionPlaybackRate}x</div>
             </div>
-            <input
-              type="range"
-              min="0.25"
-              max="4"
-              step="0.25"
-              value={transitionPlaybackRate}
-              onChange={(e) => onTransitionRateChange(Number(e.target.value))}
-              className={`w-full h-1.5 rounded-full accent-yellow-400 ${transitionPlaybackRate !== debouncedTransRate ? 'opacity-70' : ''}`}
-            />
+            <div className="relative w-full">
+              <input
+                type="range"
+                min="0.25"
+                max="4"
+                step="0.25"
+                value={transitionPlaybackRate}
+                onChange={(e) => onTransitionRateChange(Number(e.target.value))}
+                className={`w-full h-1.5 rounded-full accent-yellow-400 ${transitionPlaybackRate !== debouncedTransRate ? 'opacity-70' : ''}`}
+              />
+              {/* Removed the "Ultra smooth mode active" and "Enhanced crossfades active" messages */}
+            </div>
           </div>
         </div>
 

@@ -1,12 +1,11 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "slice2bliss",
+  "version": "0.1.0",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -14,7 +13,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "standardized-audio-context": "^25.3.77",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "web-audio-beat-detector": "^8.2.22"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

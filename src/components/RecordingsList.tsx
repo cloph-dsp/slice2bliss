@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, Play, Pause, Download, Trash } from 'lucide-react';
 
 interface Recording {
   id: string;
   name: string;
   url: string;
-  date?: Date; // Make date optional
-  timestamp?: number; // Add timestamp as an alternative
+  date?: Date;
+  timestamp?: number;
   size?: number;
   duration?: number;
 }
@@ -26,13 +26,15 @@ const RecordingsList: React.FC<RecordingsListProps> = ({
   onDownload,
   onPlayPause,
   onDelete,
-  currentlyPlaying
+  currentlyPlaying,
 }) => {
   // Check if we're on a small screen
   const isSmallScreen = window.innerWidth < 640;
+  // State to track which recording's download menu is open
+  const [openDownloadMenu, setOpenDownloadMenu] = useState<string | null>(null);
 
   const formatDuration = (seconds?: number) => {
-    if (!seconds) return '00:00';
+    if (!seconds || isNaN(seconds)) return '—:—'; // Changed from '00:00' to '—:—' for undefined duration
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -55,6 +57,19 @@ const RecordingsList: React.FC<RecordingsListProps> = ({
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
+
+  // Handle toggling the download menu
+  const toggleDownloadMenu = (recordingId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpenDownloadMenu(openDownloadMenu === recordingId ? null : recordingId);
+  };
+
+  // Close the download menu when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = () => setOpenDownloadMenu(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4 sm:p-6">
@@ -101,10 +116,12 @@ const RecordingsList: React.FC<RecordingsListProps> = ({
                           <p className="font-medium truncate">{recording.name}</p>
                           <div className="flex items-center text-xs text-gray-400 space-x-2 mt-1">
                             <span>{formatDate(recording)}</span>
-                            <span>•</span>
-                            <span>{formatDuration(recording.duration)}</span>
-                            <span>•</span>
-                            <span>{formatSize(recording.size)}</span>
+                            {recording.duration ? (
+                              <>
+                                <span>•</span>
+                                <span>{formatDuration(recording.duration)}</span>
+                              </>
+                            ) : null}
                           </div>
                         </div>
                       </div>

@@ -1,253 +1,208 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import convertWebmToWav from '../utils/AudioConverter';
 
-export interface Recording {
+interface Recording {
   id: string;
-  blob: Blob;
-  timestamp: number;
   name: string;
+  url: string;
+  timestamp: number;
+  size?: number;
   duration?: number;
-  url?: string;
+  blob: Blob;
 }
 
-export const useAudioRecorder = () => {
+interface UseAudioRecorderReturn {
+  isRecording: boolean;
+  recordings: Recording[];
+  startRecording: (stream?: MediaStream) => Promise<void>;
+  stopRecording: () => void;
+  deleteRecording: (id: string) => void;
+  currentlyPlaying: string | null;
+  playPauseRecording: (id: string) => void;
+  downloadRecording: (id: string) => void;
+}
+
+const useAudioRecorder = (): UseAudioRecorderReturn => {
   const [isRecording, setIsRecording] = useState(false);
-  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const recordingStartTime = useRef<number>(0);
 
-  // Load saved recordings from local storage on mount
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Initialize audio element
   useEffect(() => {
-    try {
-      const savedRecordings = localStorage.getItem('slice2bliss_recordings');
-      if (savedRecordings) {
-        const parsed = JSON.parse(savedRecordings);
-        
-        // Create audio URLs for each recording
-        const loadedRecordings = parsed.map((recording: Recording) => {
-          const blob = new Blob([new Uint8Array(recording.blob as any)], { type: 'audio/webm' });
-          return {
-            ...recording,
-            blob,
-            url: URL.createObjectURL(blob)
-          };
-        });
-        
-        setRecordings(loadedRecordings);
+    audioRef.current = new Audio();
+    audioRef.current.onended = () => setCurrentlyPlaying(null);
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
       }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    };
+  }, []);
+
+  const startRecording = useCallback(async (externalStream?: MediaStream) => {
+    try {
+      // Use provided stream or get microphone stream as fallback
+      const stream = externalStream || await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Create AudioContext
+      audioContextRef.current = new AudioContext();
+
+      // Create MediaRecorder with WAV format
+      mediaRecorderRef.current = new MediaRecorder(stream, {
+        mimeType: 'audio/webm',
+      });
+
+      // Reset audio chunks
+      audioChunksRef.current = [];
+
+      // Save chunks of audio data as they become available
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      // Handle recording completion
+      mediaRecorderRef.current.onstop = async () => {
+        // Create a blob from all audio chunks
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        // Convert webm to wav
+        const wavBlob = await convertWebmToWav(audioBlob);
+        const wavUrl = URL.createObjectURL(wavBlob);
+
+        // Calculate duration if startTimeRef was set
+        const duration = startTimeRef.current
+          ? (Date.now() - startTimeRef.current) / 1000
+          : undefined;
+
+        console.log(`Recording completed. Duration: ${duration?.toFixed(2)}s, size: ${(audioBlob.size / 1024).toFixed(2)} KB`);
+
+        // Create recording entry
+        const newRecording: Recording = {
+          id: uuidv4(),
+          name: `Recording ${recordings.length + 1}`,
+          url: wavUrl,
+          timestamp: Date.now(),
+          size: wavBlob.size,
+          duration,
+          blob: wavBlob
+        };
+
+        // Add to recordings list
+        setRecordings(prev => [...prev, newRecording]);
+
+        // Stop all tracks on the stream if it was from microphone (not from app audio)
+        if (!externalStream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+      };
+
+      // Start recording and track the start time precisely
+      mediaRecorderRef.current.start();
+      startTimeRef.current = Date.now();
+      setIsRecording(true);
     } catch (error) {
-      console.error('Failed to load saved recordings:', error);
+      console.error("Error starting recording:", error);
+      throw error; // Re-throw to allow caller to catch errors
+    }
+  }, [recordings.length]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      startTimeRef.current = null;
     }
   }, []);
 
-  // Save recordings to local storage when updated
-  useEffect(() => {
-    try {
-      if (recordings.length > 0) {
-        // We need to convert the blobs to array buffers for storage
-        const recordingsToSave = recordings.map(async (recording) => {
-          const buffer = await recording.blob.arrayBuffer();
-          return {
-            ...recording,
-            blob: Array.from(new Uint8Array(buffer))
-          };
-        });
-
-        Promise.all(recordingsToSave).then(prepared => {
-          localStorage.setItem('slice2bliss_recordings', JSON.stringify(prepared));
-        });
-      }
-    } catch (error) {
-      console.error('Failed to save recordings:', error);
-    }
-  }, [recordings]);
-
-  const startRecording = useCallback((stream: MediaStream): boolean => {
-    try {
-      console.log("Starting recording with stream:", stream);
-      console.log("Stream has audio tracks:", stream.getAudioTracks().length);
-      
-      if (!stream || stream.getAudioTracks().length === 0) {
-        console.error("Stream has no audio tracks");
-        return false;
-      }
-      
-      // Test that we can access the stream
-      const track = stream.getAudioTracks()[0];
-      console.log("Audio track:", track.label, "enabled:", track.enabled);
-      
-      // Clear current chunks
-      setRecordedChunks([]);
-      recordingStartTime.current = Date.now();
-      
-      // Try different mime types if the browser doesn't support the default one
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = '';
-        }
-      }
-      
-      console.log("Using MIME type:", mimeType || "browser default");
-      
-      // Create a media recorder with selected MIME type
-      const recorder = mimeType ? 
-        new MediaRecorder(stream, { mimeType }) : 
-        new MediaRecorder(stream);
-      
-      // Log recorder state
-      console.log("MediaRecorder created with state:", recorder.state);
-      
-      // Set up event handlers
-      recorder.ondataavailable = (event) => {
-        console.log("Data available event, size:", event.data.size);
-        if (event.data.size > 0) {
-          setRecordedChunks(prev => [...prev, event.data]);
-        }
-      };
-      
-      recorder.onstart = () => {
-        console.log('Recording started, state:', recorder.state);
-        setIsRecording(true);
-      };
-      
-      recorder.onstop = () => {
-        console.log('Recording stopped');
-        setIsRecording(false);
-        
-        // Combine all chunks into one blob and save the recording
-        const chunks = recordedChunks.slice();
-        console.log("Processing", chunks.length, "chunks");
-        
-        if (chunks.length > 0) {
-          const blob = new Blob(chunks, { 
-            type: mimeType || 'audio/webm' 
-          });
-          console.log("Created blob, size:", blob.size);
-          
-          const duration = Date.now() - recordingStartTime.current;
-          const id = uuidv4();
-          const url = URL.createObjectURL(blob);
-          
-          const newRecording: Recording = {
-            id,
-            blob,
-            timestamp: recordingStartTime.current,
-            name: `Recording ${recordings.length + 1}`,
-            duration,
-            url
-          };
-          
-          setRecordings(prev => [...prev, newRecording]);
-          console.log("Added new recording:", newRecording.name);
-        }
-      };
-      
-      recorder.onerror = (err) => {
-        console.error('Recording error:', err);
-        setIsRecording(false);
-      };
-      
-      // Start recording with smaller time slices to get data more frequently
-      recorder.start(500); // Get data every 500ms
-      setMediaRecorder(recorder);
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      return false;
-    }
-  }, [recordedChunks, recordings.length]);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-      setMediaRecorder(null);
-    }
-  }, [mediaRecorder]);
-
-  const downloadRecording = useCallback((id: string) => {
-    const recording = recordings.find(r => r.id === id);
-    if (!recording) {
-      console.warn('Recording not found');
-      return;
-    }
-    
-    const url = recording.url || URL.createObjectURL(recording.blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = `${recording.name.replace(/\s/g, '_')}.webm`;
-    
-    document.body.appendChild(a);
-    a.click();
-    
-    setTimeout(() => {
-      document.body.removeChild(a);
-      if (!recording.url) URL.revokeObjectURL(url);
-    }, 100);
-  }, [recordings]);
-  
-  const playPauseRecording = useCallback((id: string) => {
-    if (currentlyPlaying === id) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      setCurrentlyPlaying(null);
-    } else {
-      const recording = recordings.find(r => r.id === id);
-      if (!recording) return;
-      
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      
-      const audio = new Audio(recording.url || URL.createObjectURL(recording.blob));
-      audio.onended = () => {
-        setCurrentlyPlaying(null);
-        audioRef.current = null;
-      };
-      audio.play();
-      audioRef.current = audio;
-      setCurrentlyPlaying(id);
-    }
-  }, [currentlyPlaying, recordings]);
-  
   const deleteRecording = useCallback((id: string) => {
-    // Stop if playing
+    // If deleting currently playing recording, stop playback
     if (currentlyPlaying === id && audioRef.current) {
       audioRef.current.pause();
-      audioRef.current = null;
       setCurrentlyPlaying(null);
     }
-    
-    // Remove recording
-    setRecordings(prev => {
-      const filtered = prev.filter(r => r.id !== id);
-      // Update local storage
-      try {
-        localStorage.setItem('slice2bliss_recordings', JSON.stringify(filtered));
-      } catch (error) {
-        console.error('Failed to update saved recordings:', error);
-      }
-      return filtered;
-    });
+
+    // Filter out recording with matching ID
+    setRecordings(prev => prev.filter(rec => rec.id !== id));
   }, [currentlyPlaying]);
+
+  const playPauseRecording = useCallback((id: string) => {
+    const recording = recordings.find(rec => rec.id === id);
+
+    if (!recording) return;
+
+    // If already playing this recording, pause it
+    if (currentlyPlaying === id && audioRef.current) {
+      audioRef.current.pause();
+      setCurrentlyPlaying(null);
+      return;
+    }
+
+    // If playing another recording, stop it first
+    if (currentlyPlaying && audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    // Play the selected recording
+    if (audioRef.current) {
+      audioRef.current.src = recording.url;
+      audioRef.current.play()
+        .then(() => setCurrentlyPlaying(id))
+        .catch(err => console.error("Error playing audio:", err));
+    }
+  }, [recordings, currentlyPlaying]);
+
+  const downloadRecording = useCallback((id: string) => {
+    const recording = recordings.find(rec => rec.id === id);
+    if (!recording) {
+      console.error("Recording not found:", id);
+      return;
+    }
+
+    // Get the blob from the recording
+    const blob = recording.blob;
+
+    // Create clean base filename (remove existing extensions)
+    const baseFileName = recording.name.replace(/\s+/g, '_').replace(/\.webm|wav$/i, '');
+
+    // Create appropriate extension - always WAV
+    const extension = '.wav';
+
+    // Create and trigger download
+    const downloadName = `${baseFileName}${extension}`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = downloadName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+  }, [recordings]);
 
   return {
     isRecording,
-    recordedChunks,
     recordings,
-    currentlyPlaying,
     startRecording,
     stopRecording,
-    downloadRecording,
+    deleteRecording,
+    currentlyPlaying,
     playPauseRecording,
-    deleteRecording
+    downloadRecording,
   };
 };
+
+export default useAudioRecorder;

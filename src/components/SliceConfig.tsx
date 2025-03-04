@@ -1,137 +1,133 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { SliceOptions } from '../types/audio';
 
 interface SliceConfigProps {
   onApplyConfig: (options: SliceOptions) => Promise<boolean>;
   audioFileName: string;
-  initialBpm?: number; // Add these props
-  initialDivision?: string;
-  onBpmChange?: (bpm: number) => void;
-  onDivisionChange?: (division: string) => void;
+  initialBpm: number;
+  initialDivision: string;
+  onBpmChange: (bpm: number) => void;
+  onDivisionChange: (division: string) => void;
+  detectBpm: () => Promise<{ bpm: number } | null>;
 }
 
-const SliceConfig: React.FC<SliceConfigProps> = ({ 
-  onApplyConfig, 
+// This is a COMPLETELY controlled component 
+const SliceConfig: React.FC<SliceConfigProps> = ({
+  onApplyConfig,
   audioFileName,
-  initialBpm = 120,
-  initialDivision = '1/16',
+  initialBpm,
+  initialDivision,
   onBpmChange,
-  onDivisionChange
+  onDivisionChange,
+  detectBpm
 }) => {
-  const [bpm, setBpm] = useState(initialBpm);
-  const [division, setDivision] = useState(initialDivision);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  // Critical: Always log the actual initialBpm we're receiving
+  console.log(
+    `%cSliceConfig render with initialBpm=${initialBpm}`,
+    "background:#222; color:#ff0; padding:2px;"
+  );
   
-  // Update when props change
-  useEffect(() => {
-    setBpm(initialBpm);
-  }, [initialBpm]);
+  // Use initialBpm directly with fallback
+  const bpm = initialBpm || 120;
+  const division = initialDivision || '1/4';
   
-  useEffect(() => {
-    setDivision(initialDivision);
-  }, [initialDivision]);
+  const [isSubmitting, setIsSubmitting] = React.useState<boolean>(false);
   
-  const handleBpmChange = (value: number) => {
-    setBpm(value);
-    if (onBpmChange) {
+  // Handle BPM change
+  const handleBpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(e.target.value, 10);
+    if (!isNaN(value) && value >= 60 && value <= 200) {
+      console.log(`SliceConfig: handleBpmChange to ${value}`);
       onBpmChange(value);
     }
   };
   
-  const handleDivisionChange = (value: string) => {
-    setDivision(value);
-    if (onDivisionChange) {
-      onDivisionChange(value);
-    }
+  // Handle division change
+  const handleDivisionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    onDivisionChange(e.target.value);
   };
   
+  // Submit handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setErrorMsg('');
+    
+    const options: SliceOptions = {
+      bpm,
+      division,
+    };
     
     try {
-      const options: SliceOptions = {
-        bpm,
-        division
-      };
-      
-      console.log('Submitting slice config:', options);
-      const success = await onApplyConfig(options);
-      
-      if (!success) {
-        setErrorMsg('Failed to process audio. Please try different settings.');
-      }
-    } catch (error) {
-      console.error('Error in slice config:', error);
-      setErrorMsg('An unexpected error occurred. Please try again.');
+      await onApplyConfig(options);
     } finally {
       setIsSubmitting(false);
     }
   };
-  
+
+  // Render the component with the current BPM value
   return (
-    <div className="w-full max-w-md p-6 bg-gray-900 rounded-lg">
-      <h2 className="text-lg font-semibold mb-4 text-center">Slice Configuration</h2>
-      <p className="text-gray-400 text-sm mb-6 text-center">
-        File: {audioFileName}
+    <div className="w-full max-w-md bg-gray-900 p-6 rounded-lg shadow-xl">
+      <h2 className="text-xl mb-4">Configure Slicing</h2>
+      
+      <p className="text-sm text-gray-400 mb-4">
+        Set the BPM and slice length for "{audioFileName}"
       </p>
       
-      {errorMsg && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-500 text-red-200 text-sm rounded">
-          {errorMsg}
-        </div>
-      )}
-      
       <form onSubmit={handleSubmit}>
-        <div className="mb-4">
-          <label htmlFor="bpm" className="block text-sm font-medium mb-2">
-            BPM (Beats Per Minute)
+        <div className="mb-5">
+          <label className="block mb-2 text-sm font-medium">
+            BPM (Tempo)
           </label>
-          <input
-            type="number"
-            id="bpm"
-            min="40"
-            max="300"
-            value={bpm}
-            onChange={e => handleBpmChange(Number(e.target.value))}
-            className="w-full p-2 bg-gray-800 border border-gray-700 rounded text-white"
-            disabled={isSubmitting}
+          <input 
+            type="number" 
+            min="60" 
+            max="200" 
+            value={bpm} 
+            onChange={handleBpmChange}
+            className="w-full px-4 py-2 bg-gray-800 rounded border border-gray-700 focus:ring-yellow-500 focus:border-yellow-500"
           />
-        </div>
-        
-        <div className="mb-6">
-          <label htmlFor="division" className="block text-sm font-medium mb-2">
-            Beat Division
-          </label>
-          <select
-            id="division"
-            value={division}
-            onChange={e => handleDivisionChange(e.target.value)}
-            className="w-full p-2 bg-gray-800 border border-gray-700 rounded text-white"
-            disabled={isSubmitting}
-          >
-            <option value="1/4">1/4</option>
-            <option value="1/8">1/8</option>
-            <option value="1/16">1/16</option>
-            <option value="1/32">1/32</option>
-          </select>
-        </div>
-        
-        <div className="flex justify-center">
+          <p className="mt-1 text-xs text-gray-400">
+            Beats per minute (60-200)
+          </p>
           <button
-            type="submit"
-            className={`py-2 px-4 font-medium rounded transition-colors ${
-              isSubmitting 
-                ? "bg-gray-600 text-gray-300 cursor-not-allowed" 
-                : "bg-yellow-400 text-black hover:bg-yellow-300"
-            }`}
-            disabled={isSubmitting}
+            type="button"
+            onClick={async () => {
+              const detectedBpm = await detectBpm();
+              if (detectedBpm) {
+                onBpmChange(detectedBpm.bpm);
+              }
+            }}
+            className="mt-2 w-full bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-1 px-4 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50"
           >
-            {isSubmitting ? "Processing..." : "Slice Audio"}
+            Detect BPM
           </button>
         </div>
+        
+        <div className="mb-5">
+          <label className="block mb-2 text-sm font-medium">Slice Length</label>
+          <select 
+            value={division} 
+            onChange={handleDivisionChange}
+            className="w-full px-4 py-2 bg-gray-800 rounded border border-gray-700 focus:ring-yellow-500 focus:border-yellow-500"
+          >
+            <option value="1/1">Whole note (1/1)</option>
+            <option value="1/2">Half note (1/2)</option>
+            <option value="1/4">Quarter note (1/4)</option>
+            <option value="1/8">Eighth note (1/8)</option>
+            <option value="1/16">Sixteenth note (1/16)</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-400">
+            Musical length of each slice
+          </p>
+        </div>
+        
+        <button 
+          type="submit" 
+          disabled={isSubmitting}
+          className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-2 px-4 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50 disabled:opacity-50"
+        >
+          {isSubmitting ? 'Processing...' : 'Create Slices'}
+        </button>
       </form>
     </div>
   );

@@ -14,6 +14,13 @@ export interface AudioSegmentMetadata {
   bitDepth?: number;
   timestamp: number;
   sliceIndex: number;
+  // New fields for improved crossfading
+  originalBoundaries?: {
+    sliceStartTime: number;
+    sliceEndTime: number;
+    originalDuration: number;
+  };
+  overlapDuration?: number;
 }
 
 /**
@@ -34,6 +41,10 @@ export interface SliceOptions {
   totalSlices?: number; // Optional number of slices to create
   preserveTail?: boolean; // Whether to include the last partial slice
   sampleAccurate?: boolean; // Whether to use sample-accurate slicing
+  // New fields for BPM detection
+  detectedBpm?: number;
+  detectedConfidence?: number;
+  autoSlice?: boolean;
 }
 
 /**
@@ -53,6 +64,10 @@ export interface PlaybackOptions {
   fadeOutDuration?: number; // Duration of fade out (seconds)
   bpm?: number;         // Beats per minute (for dynamic fade calculations)
   transitionSpeed?: number; // Playback speed for transitions (affects fade durations)
+  // New options for crossfade behavior
+  crossfadeDuration?: number; // Override automatic crossfade calculation
+  equalPowerCrossfade?: boolean; // Whether to use equal power crossfade (default: true)
+  respectOverlaps?: boolean; // Whether to use the slice overlaps (default: true)
 }
 
 /**
@@ -86,4 +101,16 @@ export interface RecordingOptions {
   autoStop?: boolean;
   /** Duration in milliseconds after which to auto-stop */
   stopAfter?: number;
+}
+
+/**
+ * Audio recording information
+ */
+export interface AudioRecording {
+  id: string;
+  name: string;
+  url: string;
+  timestamp: number;
+  duration?: number;
+  size?: number;
 }

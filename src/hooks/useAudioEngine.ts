@@ -1,92 +1,165 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import audioEngine, { AudioSlice } from '../services/AudioPlaybackEngine';
-import { SliceOptions, PlaybackOptions, AudioSegment, AudioSegmentMetadata } from '../types/audio';
+import { SliceOptions } from '../types/audio';
+import { BpmDetectionResult } from '../types/bpm';
+import { detectBPM } from '../services/BpmDetectionService';
+import { testBpmDetection } from '../utils/fileNameUtils';
 
-export const useAudioEngine = () => {
+export function useAudioEngine() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [slices, setSlices] = useState<AudioSlice[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [activeSlice, setActiveSlice] = useState<number>(-1);
-  const audioLoaded = useRef(false);
-  const recordingEnabled = useRef(false);
+  
+  // Keep detectedBpm state but make isDetectingBpm private (using _)
+  const [detectedBpm, setDetectedBpm] = useState<BpmDetectionResult | null>(null);
+  const [_isDetectingBpm, setIsDetectingBpm] = useState<boolean>(false);
+  
+  // Keep references to loaded file/buffer for BPM detection
+  const fileRef = useRef<File | null>(null);
+  const bufferRef = useRef<AudioBuffer | null>(null);
 
-  // Initialize audio context and recording destination on mount
+  // Update refs when state changes
   useEffect(() => {
-    // Ensure audio context is running when needed
-    const handleUserInteraction = () => {
-      if (audioEngine.getAudioContext().state === 'suspended') {
-        audioEngine.getAudioContext().resume();
-      }
-    };
-
-    window.addEventListener('click', handleUserInteraction);
-    window.addEventListener('keydown', handleUserInteraction);
-
-    return () => {
-      window.removeEventListener('click', handleUserInteraction);
-      window.removeEventListener('keydown', handleUserInteraction);
-    };
-  }, []);
+    fileRef.current = audioFile;
+    bufferRef.current = audioBuffer;
+  }, [audioFile, audioBuffer]);
 
   const loadAudioFile = useCallback(async (file: File) => {
     setIsLoading(true);
+    setAudioFile(file);
+    fileRef.current = file; // Set the ref immediately for fast access
+    
     try {
       const buffer = await audioEngine.loadFile(file);
-      setAudioFile(file);
-      setAudioBuffer(buffer || null); // Store the audio buffer
-      setSlices([]);
-      audioLoaded.current = true;
-      return true;
+      setAudioBuffer(buffer);
+      bufferRef.current = buffer; // Set the ref immediately
+      setIsLoading(false);
+      return buffer;
     } catch (error) {
       console.error('Error loading audio file:', error);
-      audioLoaded.current = false;
-      return false;
-    } finally {
       setIsLoading(false);
+      throw error;
     }
   }, []);
 
-  const processAudio = useCallback(async (options: SliceOptions) => {
-    if (!audioLoaded.current) {
-      console.error('Cannot process audio: Audio not yet loaded');
-      return false;
+  /**
+   * Simplified BPM detection using primarily filename - now works silently
+   */
+  const detectBpm = useCallback(async () => {
+    // Get file and buffer from refs instead of state to avoid timing issues
+    const file = fileRef.current;
+    const buffer = bufferRef.current;
+    
+    if (!buffer || !file) {
+      console.error('Cannot detect BPM: audio buffer or file not available');
+      console.log('Current refs: file=', !!file, 'buffer=', !!buffer);
+      return null;
     }
     
+    setIsDetectingBpm(true);
+    console.log('Starting silent BPM detection from filename...');
+    
+    try {
+      // First, try direct filename detection to avoid service overhead
+      const filenameTest = testBpmDetection(file.name);
+      if (filenameTest.detected && filenameTest.bpm) {
+        console.log(`Quick BPM detection from filename: ${filenameTest.bpm} BPM`);
+        
+        const quickResult: BpmDetectionResult = {
+          bpm: filenameTest.bpm,
+          confidence: filenameTest.confidence,
+          isValid: true,
+          details: {
+            onsetCount: 0,
+            analysisTime: 0,
+            peakThreshold: 0,
+            rawBpm: filenameTest.bpm,
+            source: 'filename'
+          }
+        };
+        
+        setDetectedBpm(quickResult);
+        setIsDetectingBpm(false);
+        return quickResult;
+      }
+      
+      // If quick detection fails, use the detectBPM function
+      const bpm = await detectBPM(buffer, file.name);
+      
+      if (bpm) {
+        const result: BpmDetectionResult = {
+          bpm,
+          confidence: 1,
+          isValid: true,
+          details: {
+            onsetCount: 0,
+            analysisTime: 0,
+            peakThreshold: 0,
+            rawBpm: bpm,
+            source: 'audio-analysis'
+          }
+        };
+        console.log(`BPM detection result: ${bpm} BPM`);
+        setDetectedBpm(result);
+        setIsDetectingBpm(false);
+        return result;
+      }
+      throw new Error("BPM detection failed to return a result");
+    } catch (error) {
+      console.error('Error in BPM detection:', error);
+      setIsDetectingBpm(false);
+      
+      // Return a fallback result
+      const fallbackResult = {
+        bpm: 120,
+        confidence: 0.1,
+        isValid: false,
+        details: {
+          onsetCount: 0,
+          analysisTime: 0,
+          peakThreshold: 0,
+          rawBpm: 120,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          source: 'fallback'
+        }
+      };
+      
+      setDetectedBpm(fallbackResult);
+      return fallbackResult;
+    }
+  }, []); // No dependencies - use refs instead of state
+  
+  const processAudio = useCallback(async (options: SliceOptions) => {
+    if (!audioBuffer || !audioFile) {
+      console.error('No audio loaded');
+      return false;
+    }
+
     setIsLoading(true);
+
     try {
       console.log('Processing audio with options:', options);
-      const newSlices = await audioEngine.sliceAudio(options);
-      console.log(`Created ${newSlices.length} slices`);
-      setSlices(newSlices);
+      const generatedSlices = await audioEngine.sliceAudio(options);
+      console.log(`Generated ${generatedSlices.length} slices`);
+      setSlices(generatedSlices);
+      setIsLoading(false);
       return true;
     } catch (error) {
       console.error('Error processing audio:', error);
-      return false;
-    } finally {
       setIsLoading(false);
+      return false;
     }
-  }, []);
-
-  const updatePlaybackRate = useCallback((rate: number) => {
-    audioEngine.updatePlaybackRate(rate);
-  }, []);
+  }, [audioBuffer, audioFile]);
 
   const playSlice = useCallback((index: number, rate = 1, bpm = 120, transitionSpeed = 1) => {
     audioEngine.playSlice(index, rate, bpm, transitionSpeed);
     setActiveSlice(index);
-    
-    // Set up a small interval to track active slice from the engine
-    const checkActive = setInterval(() => {
-      const currentActiveSlice = audioEngine.getActiveSliceIndex();
-      if (currentActiveSlice !== index) {
-        setActiveSlice(currentActiveSlice);
-        clearInterval(checkActive);
-      }
-    }, 100);
-    
-    // Clear interval after maximum expected duration
-    setTimeout(() => clearInterval(checkActive), 10000);
+  }, []);
+
+  const updatePlaybackRate = useCallback((rate: number) => {
+    audioEngine.updatePlaybackRate(rate);
   }, []);
 
   const stopAllPlayback = useCallback(() => {
@@ -95,26 +168,15 @@ export const useAudioEngine = () => {
   }, []);
 
   const getRecordingDestination = useCallback(() => {
-    console.log("Getting recording destination:", audioEngine.getRecordingDestination());
     return audioEngine.getRecordingDestination();
   }, []);
 
   const setRecordingOutput = useCallback((enabled: boolean) => {
-    console.log("Setting recording output:", enabled);
-    recordingEnabled.current = enabled;
-    
-    // Enable/disable recording by connecting/disconnecting the destination
     if (enabled) {
       audioEngine.enableRecording();
     } else {
       audioEngine.disableRecording();
     }
-    
-    return enabled;
-  }, []);
-
-  const setStretchingQuality = useCallback((quality: 'low' | 'medium' | 'high') => {
-    audioEngine.setStretchingQuality(quality);
   }, []);
 
   const reset = useCallback(() => {
@@ -123,24 +185,31 @@ export const useAudioEngine = () => {
     setAudioBuffer(null);
     setSlices([]);
     setActiveSlice(-1);
-    audioLoaded.current = false;
+    setDetectedBpm(null);
+  }, []);
+  
+  const setStretchingQuality = useCallback((quality: 'low' | 'medium' | 'high') => {
+    audioEngine.setStretchingQuality(quality);
   }, []);
 
   return {
     audioFile,
-    audioBuffer, // Include audioBuffer in the return
+    audioBuffer,
     slices,
     isLoading,
     activeSlice,
-    setActiveSlice, // Include setActiveSlice in the return
+    detectedBpm,
+    // Do NOT expose isDetectingBpm to hide the detection process from UI
     loadAudioFile,
+    detectBpm,
     processAudio,
     playSlice,
     updatePlaybackRate,
     stopAllPlayback,
     getRecordingDestination,
     setRecordingOutput,
+    setActiveSlice,
     reset,
-    setStretchingQuality, // Add this to the returned object
+    setStretchingQuality
   };
-};
+}

@@ -1,29 +1,36 @@
 import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
 import { Disc, Upload, Play, Pause, Download, Loader } from 'lucide-react';
 import { SliceOptions } from './types/audio';
-import { Recording as RecorderRecording } from './hooks/useAudioRecorder';
+import useAudioRecorder from './hooks/useAudioRecorder';
+import { useAudioEngine } from './hooks/useAudioEngine';
 
-// Components
-import Header from './components/Header'; 
+import Header from './components/Header';
 import FileUploader from './components/FileUploader';
 import SliceConfig from './components/SliceConfig';
 import SliceGrid from './components/SliceGrid';
 import PlaybackControls from './components/PlaybackControls';
 import RecordingsList from './components/RecordingsList';
 
-// Hooks
-import { useAudioEngine } from './hooks/useAudioEngine';
-import { useAudioRecorder } from './hooks/useAudioRecorder';
+
+interface RecorderRecording {
+  id: string;
+  name: string;
+  url: string;
+  timestamp: number;
+  size?: number;
+  duration?: number;
+  blob: Blob;
+}
 
 function App() {
-  // Extract values from audio engine hook
   const {
     audioFile,
     audioBuffer,
     slices,
-    isLoading,
+    isLoading: hookLoading,
     activeSlice,
     loadAudioFile,
+    detectBpm,
     processAudio,
     playSlice,
     updatePlaybackRate,
@@ -32,8 +39,12 @@ function App() {
     setRecordingOutput,
     setActiveSlice,
     reset,
-    setStretchingQuality // Add this to the destructured values
+    setStretchingQuality
   } = useAudioEngine();
+
+  const [localLoading, setLocalLoading] = useState(false);
+
+  const isLoading = hookLoading || localLoading;
 
   // Extract values from audio recorder hook
   const {
@@ -44,7 +55,7 @@ function App() {
     stopRecording,
     downloadRecording,
     playPauseRecording,
-    deleteRecording
+    deleteRecording,
   } = useAudioRecorder();
 
   // Add console logs to debug recording state
@@ -70,28 +81,28 @@ function App() {
   const rateChangeTimeoutRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
   const currentIndex = useRef<number>(-1);
-  
+
   // Handle rate changes with debounce
   useEffect(() => {
     // Apply rate immediately to any currently playing slices
     if (isPlaying || activeSlice !== -1) {
       updatePlaybackRate(slicePlaybackRate);
     }
-    
+
     if (rateChangeTimeoutRef.current) {
       window.clearTimeout(rateChangeTimeoutRef.current);
     }
-    
+
     rateChangeTimeoutRef.current = window.setTimeout(() => {
       setDebouncedSliceRate(slicePlaybackRate);
       setDebouncedTransRate(transitionPlaybackRate);
-      
+
       // Only restart playback if we're in random playback mode and the transition rate changed
       if (isPlaying && debouncedTransRate !== transitionPlaybackRate) {
         handleRestartPlayback();
       }
     }, 300);
-    
+
     return () => {
       if (rateChangeTimeoutRef.current) {
         window.clearTimeout(rateChangeTimeoutRef.current);
@@ -100,20 +111,50 @@ function App() {
   }, [slicePlaybackRate, transitionPlaybackRate, isPlaying, activeSlice, updatePlaybackRate, debouncedTransRate]);
 
   // Handle file upload
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (file: File, detectedBpm: number | null) => {
+    console.log(`🔄 Loading file: "${file.name}"`);
+
     try {
-      await loadAudioFile(file);
-      setShowConfig(true);
+      setLocalLoading(true);
+
+      if (detectedBpm) {
+        console.log(`✅ BPM detected: ${detectedBpm}`);
+        setBpm(detectedBpm);
+      } else {
+        console.log(`⚠️ No BPM detected, using default 120`);
+        setBpm(120);
+      }
+
+      // Now load the audio file
+      const buffer = await loadAudioFile(file);
+
+      if (!buffer) {
+        console.error("❌ Failed to load audio buffer");
+        setLocalLoading(false);
+        alert("Failed to load audio file. Please try again.");
+        return;
+      }
+
+      // Complete loading and show config
+      setTimeout(() => {
+        console.log(`🎵 Using BPM: ${bpm}`);
+        setLocalLoading(false);
+        setShowConfig(true);
+      }, 200);
     } catch (error) {
-      console.error("Error loading audio file:", error);
+      console.error("❌ Error in file upload:", error);
+      setLocalLoading(false);
+      alert("Failed to load audio file. Please try a different file.");
     }
   };
+
+  // Remove the useEffect for detectedBpmValue as we now update BPM directly
 
   // Handle file input change
   const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      handleFileUpload(file);
+      handleFileUpload(file, null);
     }
   };
 
@@ -189,15 +230,35 @@ function App() {
   // Toggle recording
   const toggleRecording = async () => {
     if (isRecording) {
-      stopRecording();
-      setRecordingOutput(false);
+      console.log("Stopping recording");
+      try {
+        await stopRecording();
+        setRecordingOutput(false);
+      } catch (error) {
+        console.error("Error stopping recording:", error);
+      }
     } else {
+      console.log("Starting recording");
       // Get MediaStream from recording destination
       const destination = getRecordingDestination();
       if (destination) {
-        const success = await startRecording(destination.stream);
-        if (success) {
+        try {
+          // Enable recording output first so any playing audio gets captured
           setRecordingOutput(true);
+
+          // Small delay to ensure audio routing is established
+          setTimeout(async () => {
+            try {
+              // Pass the destination stream to the recorder
+              await startRecording(destination);
+            } catch (error) {
+              // If recording fails, disable recording output
+              setRecordingOutput(false);
+              console.error("Failed to start recording", error);
+            }
+          }, 100);
+        } catch (error) {
+          console.error("Error setting up recording:", error);
         }
       } else {
         console.error("No recording destination available");
@@ -205,12 +266,19 @@ function App() {
     }
   };
 
-  // Handle reset/new file
-  const handleReset = () => {
+  // Handle reset/new file with proper recording handling
+  const handleReset = async () => {
+    // Always make sure to stop any active recording before resetting
+    if (isRecording) {
+      await stopRecording();
+      setRecordingOutput(false);
+    }
+
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+
     setIsPlaying(false);
     reset();
   };
@@ -242,13 +310,40 @@ function App() {
       const width = window.innerWidth;
       setIsMobileDevice(width < 768);
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Render content based on app state
+
+  // Render SliceConfig with proper values and a new forced update approach
+  const renderSliceConfig = () => {
+    // Verify current BPM before rendering
+    console.log(`📊 Current BPM when rendering SliceConfig: ${bpm}`);
+
+    // IMPORTANT: Use a reactive key based on both file name and BPM
+    // This ensures re-render whenever either changes
+    const fileKey = audioFile?.name || 'no-file';
+    const configKey = `${fileKey}-${bpm}-${Date.now()}`;
+
+    return (
+      <SliceConfig
+        key={configKey}
+        onApplyConfig={handleApplyConfig}
+        audioFileName={audioFile?.name || ""}
+        initialBpm={bpm}
+        initialDivision={division}
+        onBpmChange={(newBpm) => {
+          console.log(`🎛️ Manual BPM change: ${bpm} → ${newBpm}`);
+          setBpm(newBpm);
+        }}
+            onDivisionChange={setDivision}
+            detectBpm={detectBpm}
+          />
+    );
+  };
+
   const renderContent = () => {
     if (!audioFile) {
       return (
@@ -269,16 +364,9 @@ function App() {
     }
 
     if (showConfig) {
-      return (
-        <SliceConfig 
-          onApplyConfig={handleApplyConfig} 
-          audioFileName={audioFile.name}
-          initialBpm={bpm}
-          initialDivision={division}
-          onBpmChange={setBpm}
-          onDivisionChange={setDivision}
-        />
-      );
+      (window as any).__latestBpm = bpm;
+      console.log(`🎼 Rendering config with BPM = ${bpm}`);
+      return renderSliceConfig();
     }
 
     return (
@@ -302,7 +390,7 @@ function App() {
             stretchingQuality={stretchingQuality}
             onQualityChange={handleQualityChange}
           />
-          
+
           <div className="text-xs text-gray-400 flex gap-2 items-center mt-2">
             <span className="font-medium text-white mr-2">
               {audioFile?.name}
@@ -326,10 +414,10 @@ function App() {
 
         {slices.length > 0 && (
           <div className="flex-1 overflow-hidden w-full">
-            <SliceGrid 
-              slices={slices} 
-              activeSlice={activeSlice} 
-              onSliceClick={handleSliceClick} 
+            <SliceGrid
+              slices={slices}
+              activeSlice={activeSlice}
+              onSliceClick={handleSliceClick}
             />
           </div>
         )}
@@ -347,7 +435,7 @@ function App() {
           </div>
         </div>
       )}
-      
+
       {showRecordings && (
         <RecordingsList
           recordings={formatRecordingsForList(recordings)}
@@ -358,20 +446,18 @@ function App() {
           currentlyPlaying={currentlyPlaying}
         />
       )}
-      
+
       <Header compact={isMobileDevice} />
 
       <div className="w-full max-w-4xl flex-1 flex flex-col items-center justify-center overflow-hidden">
         {renderContent()}
       </div>
-      
-      {/* Additional spacing at bottom for mobile */}
+
       {isMobileDevice && <div className="h-2 w-full"></div>}
     </div>
   );
 }
 
-// Define the Recording interface that RecordingsList expects
 interface Recording {
   id: string;
   name: string;

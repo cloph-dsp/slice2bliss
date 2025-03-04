@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { Upload, Music, XCircle } from 'lucide-react';
+import { detectBPM } from '../services/BpmDetectionService';
 
 interface FileUploaderProps {
-  onFileSelected: (file: File) => void;
+  onFileSelected: (file: File, bpm: number | null) => void;
   accept?: string;
   maxSizeInMB?: number;
 }
@@ -62,20 +63,42 @@ const FileUploader: React.FC<FileUploaderProps> = ({
     
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (validateFile(file)) {
-        setSelectedFileName(file.name);
-        onFileSelected(file);
-      }
+      handleFileSelection(file);
     }
   };
-  
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
-      if (validateFile(file)) {
-        setSelectedFileName(file.name);
-        onFileSelected(file);
-      }
+      handleFileSelection(file);
+    }
+  };
+
+  const handleFileSelection = async (file: File) => {
+    if (validateFile(file)) {
+      setSelectedFileName(file.name);
+
+      const audioContext = new AudioContext();
+      const fileReader = new FileReader();
+
+      fileReader.onload = async (event) => {
+        try {
+          const arrayBuffer = event.target?.result as ArrayBuffer;
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          const bpm = await detectBPM(audioBuffer, file.name);
+          onFileSelected(file, bpm);
+        } catch (error) {
+          console.error('Error decoding audio data or detecting BPM:', error);
+          onFileSelected(file, null); // Pass null BPM in case of error
+        }
+      };
+
+      fileReader.onerror = (error) => {
+        console.error('Error reading file:', error);
+        setError('Error reading file.');
+      };
+
+      fileReader.readAsArrayBuffer(file);
     }
   };
   
