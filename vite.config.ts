@@ -9,13 +9,13 @@ const __dirname = dirname(__filename);
 
 // Check if we're building for GitHub Pages
 const isGitHubPages = process.env.GITHUB_PAGES === 'true';
-// Use the correct repository name as the base path for GitHub Pages
+// Use the repository name as the base path for GitHub Pages
 const base = isGitHubPages ? '/slice2bliss/' : '/';
 
 export default defineConfig({
   root: resolve(__dirname),
   plugins: [react()],
-  base, // Use the correct base path
+  base, // Set the base path correctly
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
@@ -28,10 +28,6 @@ export default defineConfig({
   server: {
     hmr: {
       overlay: true
-    },
-    headers: {
-      // Remove specific content type header to let server set appropriate ones
-      // 'Content-Type': 'application/javascript'
     }
   },
   optimizeDeps: {
@@ -41,6 +37,8 @@ export default defineConfig({
     outDir: resolve(__dirname, 'dist'),
     assetsDir: 'assets',
     emptyOutDir: true,
+    // Add public copy
+    copyPublicDir: true,
     rollupOptions: {
       output: {
         assetFileNames: 'assets/[name].[hash].[ext]',

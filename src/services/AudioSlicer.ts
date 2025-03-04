@@ -30,7 +30,6 @@ export class AudioSlicer {
     
     // Calculate time per slice in seconds
     const timePerSlice = divisionValue / beatsPerSecond;
-    console.log(`Slicing audio with BPM: ${options.bpm}, division: ${options.division}, timePerSlice: ${timePerSlice}s`);
     
     // Calculate overlap duration to ensure smooth transitions
     const overlapDuration = calculateSliceOverlap(options.bpm, options.division);
@@ -38,8 +37,6 @@ export class AudioSlicer {
     // Calculate total number of slices
     // If totalSlices is specified, use that instead of calculating from duration
     const numberOfSlices = options.totalSlices || Math.floor(buffer.duration / timePerSlice);
-    console.log(`Total number of slices: ${numberOfSlices} (duration: ${buffer.duration}s)`);
-    console.log(`Using overlap of ${overlapDuration}s for smooth transitions`);
     
     // Detect format and technical details
     const format = detectAudioFormat(file);

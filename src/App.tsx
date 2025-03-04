@@ -82,9 +82,8 @@ function App() {
 
   // Handle rate changes with debounce
   useEffect(() => {
-    if (isPlaying || activeSlice !== -1) {
-      updatePlaybackRate(slicePlaybackRate);
-    }
+    if (!isPlaying && activeSlice === -1) return;
+    updatePlaybackRate(slicePlaybackRate);
 
     if (rateChangeTimeoutRef.current) {
       window.clearTimeout(rateChangeTimeoutRef.current);
@@ -107,45 +106,57 @@ function App() {
     };
   }, [slicePlaybackRate, transitionPlaybackRate, isPlaying, activeSlice, updatePlaybackRate, debouncedTransRate]);
 
-  // Handle file upload
-  const handleFileUpload = async (file: File, detectedBpm: number | null) => {
+  const setInitialBpm = (detectedBpm: number | null) => {
+    if (detectedBpm) {
+      console.log(`✅ BPM detected: ${detectedBpm}`);
+      setBpm(detectedBpm);
+    } else {
+      console.log(`⚠️ No BPM detected, using default 120`);
+      setBpm(120);
+    }
+  };
+
+  const handleAudioProcessingError = (error: any) => {
+    console.error("❌ Error processing audio:", error);
+    setLocalLoading(false);
+    alert("Failed to process audio. Please try again.");
+  };
+
+  const loadAndProcessAudio = async (file: File) => {
     console.log(`🔄 Loading file: "${file.name}"`);
-
+    setLocalLoading(true);
     try {
-      setLocalLoading(true);
-
-      if (detectedBpm) {
-        console.log(`✅ BPM detected: ${detectedBpm}`);
-        setBpm(detectedBpm);
-      } else {
-        console.log(`⚠️ No BPM detected, using default 120`);
-        setBpm(120);
-      }
-
-      // Now load the audio file
       const buffer = await loadAudioFile(file);
 
       if (!buffer) {
         console.error("❌ Failed to load audio buffer");
         setLocalLoading(false);
         alert("Failed to load audio file. Please try again.");
-        return;
+        return false;
       }
 
-      // Complete loading and show config
-      setTimeout(() => {
-        console.log(`🎵 Using BPM: ${bpm}`);
-        setLocalLoading(false);
-        setShowConfig(true);
-      }, 200);
+      return true;
+
     } catch (error) {
-      console.error("❌ Error in file upload:", error);
-      setLocalLoading(false);
-      alert("Failed to load audio file. Please try a different file.");
+      handleAudioProcessingError(error);
+      return false;
     }
   };
 
-  // Remove the useEffect for detectedBpmValue as we now update BPM directly
+  // Handle file upload
+  const handleFileUpload = async (file: File, detectedBpm: number | null) => {
+
+    setInitialBpm(detectedBpm);
+
+    const success = await loadAndProcessAudio(file);
+    if (!success) return;
+
+    setTimeout(() => {
+      console.log(`🎵 Using BPM: ${bpm}`);
+      setLocalLoading(false);
+      setShowConfig(true);
+    }, 200);
+  };
 
   // Handle file input change
   const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -160,17 +171,15 @@ function App() {
     try {
       console.log('App: Applying slice configuration:', options);
       const success = await processAudio(options);
-      if (success) {
-        setShowConfig(false);
-      }
+      setShowConfig(false);
       return success;
     } catch (error) {
-      console.error('Error applying slice config:', error);
+      handleAudioProcessingError(error);
       return false;
     }
   };
 
-  // Handle playback of a slice
+    // Handle playback of a slice
   const handleSliceClick = (index: number) => {
     // Pass BPM and transition speed along with slice rate
     playSlice(index, slicePlaybackRate, bpm, transitionPlaybackRate);
@@ -184,6 +193,7 @@ function App() {
     }
 
     if (!slices || slices.length === 0) {
+      stopAllPlayback();
       setIsPlaying(false);
       return;
     }
@@ -224,39 +234,43 @@ function App() {
     }
   };
 
+  const startAudioRecording = async (destination: MediaStream) => {
+    try {
+      setRecordingOutput(true);
+
+      // Small delay to ensure audio routing is established
+      setTimeout(async () => {
+        try {
+          await startRecording(destination);
+        } catch (error) {
+          setRecordingOutput(false);
+          console.error("Failed to start recording", error);
+        }
+      }, 100);
+    } catch (error) {
+      console.error("Error setting up recording:", error);
+    }
+  };
+
+  const stopAudioRecording = async () => {
+    try {
+      await stopRecording();
+      setRecordingOutput(false);
+    } catch (error) {
+      console.error("Error stopping recording:", error);
+    }
+  };
+
   // Toggle recording
   const toggleRecording = async () => {
     if (isRecording) {
       console.log("Stopping recording");
-      try {
-        await stopRecording();
-        setRecordingOutput(false);
-      } catch (error) {
-        console.error("Error stopping recording:", error);
-      }
+      await stopAudioRecording();
     } else {
       console.log("Starting recording");
-      // Get MediaStream from recording destination
       const destination = getRecordingDestination();
       if (destination) {
-        try {
-          // Enable recording output first so any playing audio gets captured
-          setRecordingOutput(true);
-
-          // Small delay to ensure audio routing is established
-          setTimeout(async () => {
-            try {
-              // Pass the destination stream to the recorder
-              await startRecording(destination);
-            } catch (error) {
-              // If recording fails, disable recording output
-              setRecordingOutput(false);
-              console.error("Failed to start recording", error);
-            }
-          }, 100);
-        } catch (error) {
-          console.error("Error setting up recording:", error);
-        }
+        await startAudioRecording(destination);
       } else {
         console.error("No recording destination available");
       }

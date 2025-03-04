@@ -20,6 +20,22 @@ interface PlaybackControlsProps {
   onQualityChange: (quality: 'low' | 'medium' | 'high') => void;
 }
 
+// Custom hook to track window size
+const useWindowSize = () => {
+  const [isCompact, setIsCompact] = useState(window.innerWidth < 480);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsCompact(window.innerWidth < 480);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  return isCompact;
+};
+
 const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   isPlaying,
   isRecording,
@@ -39,18 +55,8 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   onQualityChange
 }) => {
   const [showSettings, setShowSettings] = useState(false);
-  const [isCompact, setIsCompact] = useState(window.innerWidth < 480);
+  const isCompact = useWindowSize();
   const [showSliders, setShowSliders] = useState(true);
-  
-  // Track window size for responsive behavior
-  useEffect(() => {
-    const handleResize = () => {
-      setIsCompact(window.innerWidth < 480);
-    };
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
   
   // For very small screens, provide option to collapse sliders
   const toggleSliders = () => {

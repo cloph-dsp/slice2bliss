@@ -11,11 +11,11 @@ export function useAudioEngine() {
   const [slices, setSlices] = useState<AudioSlice[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [activeSlice, setActiveSlice] = useState<number>(-1);
-  
+
   // Keep detectedBpm state but make isDetectingBpm private (using _)
   const [detectedBpm, setDetectedBpm] = useState<BpmDetectionResult | null>(null);
   const [_isDetectingBpm, setIsDetectingBpm] = useState<boolean>(false);
-  
+
   // Keep references to loaded file/buffer for BPM detection
   const fileRef = useRef<File | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
@@ -30,7 +30,7 @@ export function useAudioEngine() {
     setIsLoading(true);
     setAudioFile(file);
     fileRef.current = file; // Set the ref immediately for fast access
-    
+
     try {
       const buffer = await audioEngine.loadFile(file);
       setAudioBuffer(buffer);
@@ -44,6 +44,55 @@ export function useAudioEngine() {
     }
   }, []);
 
+
+  const getBpmFromFilename = (filename: string): BpmDetectionResult | null => {
+    const filenameTest = testBpmDetection(filename);
+    if (filenameTest.detected && filenameTest.bpm) {
+      console.log(`Quick BPM detection from filename: ${filenameTest.bpm} BPM`);
+
+      const quickResult: BpmDetectionResult = {
+        bpm: filenameTest.bpm,
+        confidence: filenameTest.confidence,
+        isValid: true,
+        details: {
+          onsetCount: 0,
+          analysisTime: 0,
+          peakThreshold: 0,
+          rawBpm: filenameTest.bpm,
+          source: 'filename',
+        },
+      };
+
+      return quickResult;
+    }
+    return null;
+  };
+
+  const getBpmFromAudioAnalysis = async (
+    buffer: AudioBuffer,
+    filename: string
+  ): Promise<BpmDetectionResult | null> => {
+    const bpm = await detectBPM(buffer, filename);
+
+    if (bpm) {
+      const result: BpmDetectionResult = {
+        bpm,
+        confidence: 1,
+        isValid: true,
+        details: {
+          onsetCount: 0,
+          analysisTime: 0,
+          peakThreshold: 0,
+          rawBpm: bpm,
+          source: 'audio-analysis',
+        },
+      };
+      console.log(`BPM detection result: ${bpm} BPM`);
+      return result;
+    }
+    return null;
+  };
+
   /**
    * Simplified BPM detection using primarily filename - now works silently
    */
@@ -51,66 +100,38 @@ export function useAudioEngine() {
     // Get file and buffer from refs instead of state to avoid timing issues
     const file = fileRef.current;
     const buffer = bufferRef.current;
-    
+
     if (!buffer || !file) {
       console.error('Cannot detect BPM: audio buffer or file not available');
       console.log('Current refs: file=', !!file, 'buffer=', !!buffer);
       return null;
     }
-    
+
     setIsDetectingBpm(true);
-    console.log('Starting silent BPM detection from filename...');
-    
+    console.log('Starting silent BPM detection...');
+
     try {
       // First, try direct filename detection to avoid service overhead
-      const filenameTest = testBpmDetection(file.name);
-      if (filenameTest.detected && filenameTest.bpm) {
-        console.log(`Quick BPM detection from filename: ${filenameTest.bpm} BPM`);
-        
-        const quickResult: BpmDetectionResult = {
-          bpm: filenameTest.bpm,
-          confidence: filenameTest.confidence,
-          isValid: true,
-          details: {
-            onsetCount: 0,
-            analysisTime: 0,
-            peakThreshold: 0,
-            rawBpm: filenameTest.bpm,
-            source: 'filename'
-          }
-        };
-        
-        setDetectedBpm(quickResult);
+      const filenameResult = getBpmFromFilename(file.name);
+      if (filenameResult) {
+        setDetectedBpm(filenameResult);
         setIsDetectingBpm(false);
-        return quickResult;
+        return filenameResult;
       }
-      
+
       // If quick detection fails, use the detectBPM function
-      const bpm = await detectBPM(buffer, file.name);
-      
-      if (bpm) {
-        const result: BpmDetectionResult = {
-          bpm,
-          confidence: 1,
-          isValid: true,
-          details: {
-            onsetCount: 0,
-            analysisTime: 0,
-            peakThreshold: 0,
-            rawBpm: bpm,
-            source: 'audio-analysis'
-          }
-        };
-        console.log(`BPM detection result: ${bpm} BPM`);
-        setDetectedBpm(result);
+      const analysisResult = await getBpmFromAudioAnalysis(buffer, file.name);
+      if (analysisResult) {
+        setDetectedBpm(analysisResult);
         setIsDetectingBpm(false);
-        return result;
+        return analysisResult;
       }
-      throw new Error("BPM detection failed to return a result");
+
+      throw new Error('BPM detection failed to return a result');
     } catch (error) {
       console.error('Error in BPM detection:', error);
       setIsDetectingBpm(false);
-      
+
       // Return a fallback result
       const fallbackResult = {
         bpm: 120,
@@ -122,15 +143,15 @@ export function useAudioEngine() {
           peakThreshold: 0,
           rawBpm: 120,
           error: error instanceof Error ? error.message : 'Unknown error',
-          source: 'fallback'
-        }
+          source: 'fallback',
+        },
       };
-      
+
       setDetectedBpm(fallbackResult);
       return fallbackResult;
     }
   }, []); // No dependencies - use refs instead of state
-  
+
   const processAudio = useCallback(async (options: SliceOptions) => {
     if (!audioBuffer || !audioFile) {
       console.error('No audio loaded');
@@ -187,7 +208,7 @@ export function useAudioEngine() {
     setActiveSlice(-1);
     setDetectedBpm(null);
   }, []);
-  
+
   const setStretchingQuality = useCallback((quality: 'low' | 'medium' | 'high') => {
     audioEngine.setStretchingQuality(quality);
   }, []);

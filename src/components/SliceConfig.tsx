@@ -32,6 +32,13 @@ const SliceConfig: React.FC<SliceConfigProps> = ({
   const division = initialDivision || '1/4';
   
   const [isSubmitting, setIsSubmitting] = React.useState<boolean>(false);
+
+  const handleDetectBpmClick = async () => {
+    const detectedBpm = await detectBpm();
+    if (detectedBpm) {
+      onBpmChange(detectedBpm.bpm);
+    }
+  };
   
   // Handle BPM change
   const handleBpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,12 +98,7 @@ const SliceConfig: React.FC<SliceConfigProps> = ({
           </p>
           <button
             type="button"
-            onClick={async () => {
-              const detectedBpm = await detectBpm();
-              if (detectedBpm) {
-                onBpmChange(detectedBpm.bpm);
-              }
-            }}
+            onClick={handleDetectBpmClick}
             className="mt-2 w-full bg-yellow-500 hover:bg-yellow-600 text-black font-medium py-1 px-4 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50"
           >
             Detect BPM
