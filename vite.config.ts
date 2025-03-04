@@ -3,17 +3,16 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Get the directory path equivalent to __dirname in ESM
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
+  base: '/slice2bliss/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src')
     }
   },
-  // Let PostCSS config handle this instead
   css: {
     devSourcemap: true,
     postcss: './postcss.config.cjs'
@@ -26,4 +25,16 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        assetFileNames: 'assets/[name].[hash].[ext]',
+        chunkFileNames: 'assets/[name].[hash].js',
+        entryFileNames: 'assets/[name].[hash].js',
+      }
+    }
+  }
 });
