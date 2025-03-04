@@ -82,7 +82,6 @@ function App() {
 
   // Handle rate changes with debounce
   useEffect(() => {
-    // Apply rate immediately to any currently playing slices
     if (isPlaying || activeSlice !== -1) {
       updatePlaybackRate(slicePlaybackRate);
     }
