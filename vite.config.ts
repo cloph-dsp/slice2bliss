@@ -48,6 +48,7 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: resolve(__dirname, 'dist'),
       emptyOutDir: true,
+      assetsDir: 'assets',
       rollupOptions: {
         input: 'index.html',
         output: {
@@ -55,7 +56,7 @@ export default defineConfig(({ mode }) => {
           chunkFileNames: 'assets/[name].[hash].js',
           assetFileNames: 'assets/[name].[hash][extname]'
         }
-      }
-    }
+      },
+    },
   };
 });
