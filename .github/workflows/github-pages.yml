@@ -35,13 +35,15 @@ jobs:
       - name: Create .nojekyll file
         run: touch dist/.nojekyll
 
-      # Fix paths if needed
-      - name: Ensure proper relative paths
+      # Fix paths for GitHub Pages
+      - name: Ensure proper paths for GitHub Pages
         run: |
-          # Ensure all paths in HTML files are relative
-          find dist -name "*.html" -exec sed -i 's|src="/|src="./|g' {} \;
-          find dist -name "*.html" -exec sed -i 's|href="/|href="./|g' {} \;
-          
+          # Ensure all paths in HTML and JS files are relative and include the base path
+          find dist -type f \( -name "*.html" -o -name "*.js" \) -exec sed -i 's|src="/|src="/slice2bliss/|g' {} \;
+          find dist -type f \( -name "*.html" -o -name "*.js" \) -exec sed -i 's|href="/|href="/slice2bliss/|g' {} \;
+          find dist -type f \( -name "*.html" -o -name "*.js" \) -exec sed -i 's|src="./|src="/slice2bliss/|g' {} \;
+          find dist -type f \( -name "*.html" -o -name "*.js" \) -exec sed -i 's|href="./|href="/slice2bliss/|g' {} \;
+
       # Verify build output for debugging purposes
       - name: Verify build output
         run: |
