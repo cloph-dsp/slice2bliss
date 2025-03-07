@@ -1,9 +1,15 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import './index.css'; // Make sure this path is correct
 
-// Log for debugging
+// Import all styles
+import './index.css';
+import '../styles/main.css';
+import './styles/animations.css';
+import './styles/grid.css';
+import './styles/responsive.css';
+
+// Debug logging
 console.log('Main module loaded successfully. Running in:', 
   import.meta.env.MODE, 
   'Base URL:', import.meta.env.BASE_URL);
