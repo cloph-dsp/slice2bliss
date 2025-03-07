@@ -32,6 +32,9 @@ jobs:
           GITHUB_PAGES: 'true'
           NODE_ENV: 'production'
 
+      - name: Copy .htaccess file
+        run: cp public/.htaccess dist/.htaccess
+
       - name: Create .nojekyll
         run: touch dist/.nojekyll
 
