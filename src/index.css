@@ -1,7 +1,3 @@
-@import './styles/grid.css';
-@import './styles/responsive.css';
-@import './styles/animations.css';
-
 /* Base styles for the application */
 @tailwind base;
 @tailwind components;

@@ -47,7 +47,13 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: resolve(__dirname, 'dist'),
-      emptyOutDir: true
+      emptyOutDir: true,
+      assetsDir: 'assets',
+      rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html')
+        }
+      }
     }
   };
 });
