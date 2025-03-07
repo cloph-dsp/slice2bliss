@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Permissions-Policy" content="interest-cohort=()">
   <title>Slice2Bliss</title>
-  <!-- Use relative paths starting with ./ -->
-  <link rel="stylesheet" href="./styles/main.css">
+  <!-- Preload critical assets -->
+  <link rel="modulepreload" href="/slice2bliss/assets/vendor-react.js">
+  <link rel="modulepreload" href="/slice2bliss/assets/vendor-audio.js">
+  <link rel="preload" href="/slice2bliss/styles/main.css" as="style">
+  <link rel="stylesheet" href="/slice2bliss/styles/main.css">
+  <!-- Add cache control hints -->
+  <meta http-equiv="Cache-Control" content="max-age=31536000, immutable">
   <!-- GitHub Pages spa redirect handling -->
   <script type="text/javascript">
     // Single Page Apps for GitHub Pages
@@ -25,16 +30,32 @@
 </head>
 <body>
   <div id="root"></div>
-  <!-- IMPORTANT: Use relative path without .tsx extension -->
-  <script type="module" src="./src/main.js"></script>
-  <!-- Fix script paths to use relative references -->
+  <!-- Use absolute paths for GitHub Pages -->
+  <script type="module" src="/slice2bliss/assets/main.js"></script>
+  <!-- Add performance monitoring -->
   <script>
-    // Handle script loading errors
+    // Enhanced error and performance monitoring
     window.addEventListener('error', function(e) {
       if (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK') {
         console.error('Resource failed to load:', e.target.src || e.target.href);
       }
     }, true);
+
+    // Monitor and log performance metrics
+    if (window.performance && window.performance.getEntriesByType) {
+      window.addEventListener('load', function() {
+        setTimeout(() => {
+          const navigation = performance.getEntriesByType('navigation')[0];
+          const resources = performance.getEntriesByType('resource');
+          
+          console.debug('Page Load Metrics:', {
+            loadTime: navigation.loadEventEnd - navigation.startTime,
+            domContentLoaded: navigation.domContentLoadedEventEnd - navigation.startTime,
+            resourceCount: resources.length
+          });
+        }, 0);
+      });
+    }
   </script>
 </body>
 </html>

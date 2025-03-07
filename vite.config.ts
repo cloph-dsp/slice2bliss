@@ -51,15 +51,40 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       copyPublicDir: true,
       minify: 'terser',
-      // IMPORTANT: Name the entry point with a fixed name for easier reference
+      modulePreload: {
+        polyfill: true
+      },
+      sourcemap: true,
+      // Enhanced build configuration for better performance
       rollupOptions: {
         input: {
           main: resolve(__dirname, 'index.html'),
         },
         output: {
-          entryFileNames: 'assets/[name].js',
-          chunkFileNames: 'assets/[name]-[hash].js',
-          assetFileNames: 'assets/[name]-[hash].[ext]',
+          // Improved chunk splitting strategy
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-audio': ['standardized-audio-context', 'web-audio-beat-detector'],
+            'app-utils': [
+              './src/utils/audioUtils.ts',
+              './src/utils/fileNameUtils.ts',
+              './src/utils/crossfadeUtils.ts'
+            ]
+          },
+          // Optimized file naming for better caching
+          entryFileNames: 'assets/[name].[hash].js',
+          chunkFileNames: 'assets/[name].[hash].js',
+          assetFileNames: 'assets/[name].[hash].[ext]'
+        }
+      },
+      // Enhanced terser options for better minification
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true
+        },
+        format: {
+          comments: false
         }
       }
     }
