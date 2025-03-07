@@ -47,23 +47,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: resolve(__dirname, 'dist'),
-      assetsDir: 'assets',
-      emptyOutDir: true,
-      copyPublicDir: true,
-      cssCodeSplit: false, // Bundle all CSS into a single file
-      rollupOptions: {
-        input: {
-          main: resolve(__dirname, 'index.html'),
-        },
-        output: {
-          entryFileNames: 'assets/[name].js',
-          chunkFileNames: 'assets/chunk-[hash].js',
-          assetFileNames: (assetInfo) => {
-            if (assetInfo.name === 'style.css') return 'assets/style.css';
-            return 'assets/[name]-[hash][extname]';
-          }
-        }
-      }
+      emptyOutDir: true
     }
   };
 });
