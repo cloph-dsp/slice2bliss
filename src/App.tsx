@@ -23,6 +23,7 @@ interface RecorderRecording {
 }
 
 function App() {
+  console.log("App component loaded");
   const {
     audioFile,
     audioBuffer,
