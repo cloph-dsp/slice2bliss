@@ -13,19 +13,18 @@ export default defineConfig(({ mode }) => {
   
   // Check if we're building for GitHub Pages
   const isGitHubPages = process.env.GITHUB_PAGES === 'true';
-  const base = isGitHubPages ? '/slice2bliss/' : '/';
   
-  console.log(`Building for ${isGitHubPages ? 'GitHub Pages' : 'local/production'} with base: "${base}"`);
-  
+  const ghPagesBase = '/slice2bliss/';
+  console.log(`Building for ${isGitHubPages ? 'GitHub Pages' : 'local/production'} with base: "${ghPagesBase}"`);
   return {
     root: resolve(__dirname),
+    base: ghPagesBase,
     plugins: [
       react(),
       nodePolyfills({
         include: ['crypto']
       })
     ],
-    base, // Set the correct base path
     resolve: {
       alias: {
         '@': resolve(__dirname, './src')
