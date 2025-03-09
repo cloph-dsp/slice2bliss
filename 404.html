@@ -5,7 +5,10 @@
   <title>Redirecting...</title>
   <script>
     var path = window.location.pathname;
-    window.location.replace("/index.html" + path + window.location.search);
+    // Check if the path is not a file
+    if (!path.match(/\.(js|css|ico|png|jpg|jpeg|gif|svg)$/)) {
+      window.location.replace("/slice2bliss/index.html" + path + window.location.search);
+    }
   </script>
 </head>
 <body>
