@@ -11,7 +11,6 @@ import SliceGrid from './components/SliceGrid';
 import PlaybackControls from './components/PlaybackControls';
 import RecordingsList from './components/RecordingsList';
 
-
 interface RecorderRecording {
   id: string;
   name: string;
@@ -76,7 +75,6 @@ function App() {
   const [stretchingQuality, setStretchingQualityState] = useState<'low' | 'medium' | 'high'>('medium');
   const [isMobileDevice, setIsMobileDevice] = useState(false);
 
-  // Refs
   const rateChangeTimeoutRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
   const currentIndex = useRef<number>(-1);
@@ -94,7 +92,6 @@ function App() {
       setDebouncedSliceRate(slicePlaybackRate);
       setDebouncedTransRate(transitionPlaybackRate);
 
-      // Only restart playback if we're in random playback mode and the transition rate changed
       if (isPlaying && debouncedTransRate !== transitionPlaybackRate) {
         handleRestartPlayback();
       }
@@ -167,7 +164,7 @@ function App() {
     }
   };
 
-  // Apply slice configuration
+  // slice configuration
   const handleApplyConfig = async (options: SliceOptions) => {
     try {
       console.log('App: Applying slice configuration:', options);
@@ -180,9 +177,9 @@ function App() {
     }
   };
 
-    // Handle playback of a slice
+    // playback of a slice
   const handleSliceClick = (index: number) => {
-    // Pass BPM and transition speed along with slice rate
+    // BPM and transition speed
     playSlice(index, slicePlaybackRate, bpm, transitionPlaybackRate);
   };
 
@@ -202,25 +199,23 @@ function App() {
     const playRandomSlice = () => {
       const randomIndex = Math.floor(Math.random() * slices.length);
       currentIndex.current = randomIndex;
-      // Pass BPM and transition speed along with slice rate
+      // BPM and transition speed
       playSlice(randomIndex, slicePlaybackRate, bpm, transitionPlaybackRate);
     };
 
-    // Play first random slice immediately
+    // random slice playback
     playRandomSlice();
 
-    // Set interval for subsequent slices
     const intervalMs = calculateInterval();
     intervalRef.current = window.setInterval(playRandomSlice, intervalMs);
   };
 
-  // Calculate interval based on BPM and transition rate
+  // Calculate interval based on BPM
   const calculateInterval = () => {
-    // Simple calculation - could be enhanced with more musical timing
     return (60 / bpm) * 1000 / transitionPlaybackRate;
   };
 
-  // Toggle playback
+  // Playback
   const togglePlayback = () => {
     if (isPlaying) {
       if (intervalRef.current) {
@@ -239,7 +234,6 @@ function App() {
     try {
       setRecordingOutput(true);
 
-      // Small delay to ensure audio routing is established
       setTimeout(async () => {
         try {
           await startRecording(destination);
