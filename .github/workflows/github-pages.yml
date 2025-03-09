@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy even if there are no changes'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
@@ -39,9 +44,16 @@ jobs:
       - name: Create .nojekyll
         run: touch dist/.nojekyll
 
+      - name: Debug - List dist directory
+        run: ls -la dist
+
+      - name: Debug - Cat index.html
+        run: cat dist/index.html
+
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: dist
           branch: gh-pages
           clean: true
+          force: ${{ github.event.inputs.force_deploy == 'true' || true }}
