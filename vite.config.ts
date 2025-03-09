@@ -14,7 +14,8 @@ export default defineConfig(({ mode }) => {
   // Check if we're building for GitHub Pages
   const isGitHubPages = process.env.GITHUB_PAGES === 'true';
   
-  const ghPagesBase = '/slice2bliss/';
+  // Use BASE_URL environment variable if set, otherwise use '/'
+  const ghPagesBase = process.env.BASE_URL || '/';
   console.log(`Building for ${isGitHubPages ? 'GitHub Pages' : 'local/production'} with base: "${ghPagesBase}"`);
   return {
     root: resolve(__dirname),

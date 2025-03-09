@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/slice2bliss/',
+  base: process.env.BASE_URL || '/',
   root: '.',
   build: {
     outDir: 'dist',
