@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import convertWebmToWav from '../utils/AudioConverter';
+import convertWebmToWav from '../utils/audioConverter';
 
 interface Recording {
   id: string;
