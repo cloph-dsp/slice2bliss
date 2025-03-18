@@ -67,7 +67,10 @@ export interface PlaybackOptions {
   // New options for crossfade behavior
   crossfadeDuration?: number; // Override automatic crossfade calculation
   equalPowerCrossfade?: boolean; // Whether to use equal power crossfade (default: true)
-  respectOverlaps?: boolean; // Whether to use the slice overlaps (default: true)
+  // Enhanced click prevention options
+  crossfadeStrategy?: 'standard' | 'precision' | 'phase-aligned' | 'multi-band' | 'adaptive'; // Crossfade algorithm to use
+  transientPreservation?: boolean; // Whether to preserve transients (default: true)
+  adaptiveCrossfading?: boolean; // Whether to adapt crossfade based on audio content (default: true)
 }
 
 /**

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Download, Mic, Square, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Pause, Download, Mic, Square, Settings, ChevronDown, ChevronUp, Edit, Upload } from 'lucide-react';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -18,6 +18,10 @@ interface PlaybackControlsProps {
   onShowRecordings: () => void;
   stretchingQuality: 'low' | 'medium' | 'high';
   onQualityChange: (quality: 'low' | 'medium' | 'high') => void;
+  onEditBpm: () => void;
+  onUploadNewFile: () => void;
+  onTestAudio: () => void; // Add this prop
+  compact?: boolean;
 }
 
 // Custom hook to track window size
@@ -52,7 +56,11 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   onTransitionRateChange,
   onShowRecordings,
   stretchingQuality,
-  onQualityChange
+  onQualityChange,
+  onEditBpm,
+  onUploadNewFile,
+  onTestAudio, // Add this prop
+  compact
 }) => {
   const [showSettings, setShowSettings] = useState(false);
   const isCompact = useWindowSize();
@@ -64,48 +72,26 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   };
   
   return (
-    <div className="relative bg-gray-900 rounded-lg shadow-md w-full">
-      <div className={`flex ${isCompact ? 'flex-col' : 'items-center'} gap-2.5 p-3`}>
-        {/* Conditional button to show/hide sliders on small screens */}
-        {isCompact && (
-          <div className="w-full flex justify-between items-center mb-1">
-            <div className="text-sm font-medium">Playback Controls</div>
-            <button
-              onClick={toggleSliders}
-              className="text-gray-400 hover:text-white p-1"
-              aria-label={showSliders ? "Hide sliders" : "Show sliders"}
-            >
-              {showSliders ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-            </button>
-          </div>
-        )}
-        
-        {/* Sliders section - can be collapsed on mobile */}
-        <div 
-          className={`flex flex-col gap-1.5 ${isCompact ? 'w-full' : 'w-[65%] max-w-sm'} 
-                      ${isCompact && !showSliders ? 'hidden' : 'block'}`}
-        >
-          <div className="flex items-center gap-2">
-            <div className={`${isCompact ? 'w-12' : 'w-16'}`}>
-              <div className="text-xs font-medium">Slice</div>
-              <div className="text-xs text-gray-400">{slicePlaybackRate}x</div>
+    <div className="relative bg-gray-900/80 rounded-lg shadow-md w-full p-2">
+      <div className="flex flex-wrap gap-2 items-center justify-between">
+        {/* Compact slider section */}
+        <div className="flex gap-2 items-center flex-grow max-w-xs">
+          <div className="flex flex-col w-full gap-1">
+            <div className="flex items-center gap-1">
+              <div className="w-8 text-xs">Slice</div>
+              <input
+                type="range"
+                min="0.25"
+                max="2"
+                step="0.25"
+                value={slicePlaybackRate}
+                onChange={(e) => onSliceRateChange(Number(e.target.value))}
+                className="flex-grow h-1.5 rounded-full accent-yellow-400"
+              />
+              <div className="w-8 text-right text-xs">{slicePlaybackRate}x</div>
             </div>
-            <input
-              type="range"
-              min="0.25"
-              max="2"
-              step="0.25"
-              value={slicePlaybackRate}
-              onChange={(e) => onSliceRateChange(Number(e.target.value))}
-              className={`w-full h-1.5 rounded-full accent-yellow-400 ${slicePlaybackRate !== debouncedSliceRate ? 'opacity-70' : ''}`}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <div className={`${isCompact ? 'w-12' : 'w-16'}`}>
-              <div className="text-xs font-medium">Trans</div>
-              <div className="text-xs text-gray-400">{transitionPlaybackRate}x</div>
-            </div>
-            <div className="relative w-full">
+            <div className="flex items-center gap-1">
+              <div className="w-8 text-xs">Trans</div>
               <input
                 type="range"
                 min="0.25"
@@ -113,62 +99,80 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
                 step="0.25"
                 value={transitionPlaybackRate}
                 onChange={(e) => onTransitionRateChange(Number(e.target.value))}
-                className={`w-full h-1.5 rounded-full accent-yellow-400 ${transitionPlaybackRate !== debouncedTransRate ? 'opacity-70' : ''}`}
+                className="flex-grow h-1.5 rounded-full accent-yellow-400"
               />
-              {/* Removed the "Ultra smooth mode active" and "Enhanced crossfades active" messages */}
+              <div className="w-8 text-right text-xs">{transitionPlaybackRate}x</div>
             </div>
           </div>
         </div>
 
-        {/* Controls section - always visible */}
-        <div className={`flex gap-2 ${isCompact ? 'w-full justify-between mt-1' : 'ml-auto'}`}>
+        {/* Buttons in a more compact layout */}
+        <div className="flex gap-1 items-center">
           <button
             onClick={onTogglePlayback}
             disabled={isLoading || noSlices}
-            className={`p-2.5 rounded-full transition-colors flex-shrink-0 ${
+            className={`p-2 rounded-full transition-colors flex-shrink-0 ${
               isLoading || noSlices ? 'bg-gray-700 opacity-50 cursor-not-allowed' : 
               isPlaying ? 'bg-yellow-500 text-black hover:bg-yellow-400' : 'bg-yellow-400 text-black hover:bg-yellow-300'
             }`}
             title={isPlaying ? "Pause" : "Play"}
           >
-            {isPlaying ? <Pause size={isCompact ? 18 : 20} strokeWidth={2.5} /> : <Play size={isCompact ? 18 : 20} strokeWidth={2.5} />}
+            {isPlaying ? <Pause size={18} strokeWidth={2.5} /> : <Play size={18} strokeWidth={2.5} />}
           </button>
 
           <button
             onClick={onToggleRecording}
-            className={`p-2.5 rounded-full transition-colors flex-shrink-0 ${
+            className={`p-2 rounded-full transition-colors flex-shrink-0 ${
               isRecording
                 ? "bg-red-600 text-white hover:bg-red-500 animate-pulse"
                 : "bg-yellow-400 text-black hover:bg-yellow-300"
             }`}
             title={isRecording ? "Stop Recording" : "Start Recording"}
           >
-            {isRecording ? <Square size={isCompact ? 18 : 20} strokeWidth={2.5} /> : <Mic size={isCompact ? 18 : 20} strokeWidth={2.5} />}
+            {isRecording ? <Square size={18} strokeWidth={2.5} /> : <Mic size={18} strokeWidth={2.5} />}
           </button>
 
           {hasRecording && (
             <button
               onClick={onShowRecordings}
-              className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-500 transition-colors flex-shrink-0"
+              className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-500 transition-colors flex-shrink-0"
               title="Show Recordings"
               data-testid="show-recordings-button"
             >
-              <Download size={isCompact ? 18 : 20} strokeWidth={2.5} />
+              <Download size={18} strokeWidth={2.5} />
             </button>
           )}
+          
+          {/* Add the Edit BPM button */}
+          <button
+            onClick={onEditBpm}
+            className="bg-yellow-400 text-black p-2 rounded-full hover:bg-yellow-300 transition-colors flex-shrink-0"
+            title="Edit BPM"
+          >
+            <Edit size={18} strokeWidth={2.5} />
+          </button>
+          
+          {/* Add the Upload New File button */}
+          <button
+            onClick={onUploadNewFile}
+            className="bg-yellow-400 text-black p-2 rounded-full hover:bg-yellow-300 transition-colors flex-shrink-0"
+            title="Upload a different file"
+          >
+            <Upload size={18} strokeWidth={2.5} />
+          </button>
 
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="p-2.5 rounded-full transition-colors flex-shrink-0 bg-gray-800 text-white hover:bg-gray-700"
+            className="p-2 rounded-full transition-colors flex-shrink-0 bg-gray-800 text-white hover:bg-gray-700"
             title="Time-stretching Settings"
           >
-            <Settings size={isCompact ? 18 : 20} strokeWidth={2} />
+            <Settings size={18} strokeWidth={2} />
           </button>
         </div>
       </div>
       
       {showSettings && (
-        <div className={`absolute ${isCompact ? 'left-0' : 'right-0'} top-full mt-2 bg-gray-900 p-3 rounded-lg shadow-lg z-10 w-64`}>
+        <div className={`absolute ${isCompact ? 'left-0' : 'right-0'} top-full mt-2 bg-gray-900 p-3 rounded-lg shadow-lg z-50 w-64`}>
           <h3 className="text-sm font-medium mb-2">Time-stretching Quality</h3>
           <div className="flex flex-col gap-2">
             <label className="flex items-center">
@@ -204,6 +208,18 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
               />
               <span className="text-sm">High (Better Quality)</span>
             </label>
+          </div>
+          {/* Add Test Audio button */}
+          <div className="mt-3 pt-3 border-t border-gray-700">
+            <button 
+              onClick={onTestAudio}
+              className="w-full bg-purple-700 hover:bg-purple-600 text-white py-2 px-4 rounded-md flex items-center justify-center"
+            >
+              <span className="mr-2">🔊</span> Test Audio
+            </button>
+            <p className="text-xs text-gray-400 mt-1">
+              Fix audio issues on mobile by testing the audio system
+            </p>
           </div>
         </div>
       )}

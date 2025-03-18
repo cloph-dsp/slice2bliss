@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect, ChangeEvent } from 'react';
-import { Disc, Upload, Play, Pause, Download, Loader } from 'lucide-react';
+import { Disc, Upload, Play, Pause, Download, Loader, Edit } from 'lucide-react';
 import { SliceOptions } from './types/audio';
 import useAudioRecorder from './hooks/useAudioRecorder';
 import { useAudioEngine } from './hooks/useAudioEngine';
+// Import the AudioPlaybackEngine singleton directly
+import audioEngineInstance from './services/AudioPlaybackEngine';
 
 import Header from './components/Header';
 import FileUploader from './components/FileUploader';
@@ -322,6 +324,42 @@ function App() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Add this inside the App component
+  const testAudio = async () => {
+    console.log("Testing audio...");
+    // Use the imported instance instead of trying to access audioEngine
+    const context = audioEngineInstance.getAudioContext();
+    console.log("Audio context state:", context.state);
+    
+    // Try to resume the context
+    if (context.state !== "running") {
+      try {
+        await context.resume();
+        console.log("After resume, context state:", context.state);
+      } catch (e) {
+        console.error("Failed to resume context:", e);
+      }
+    }
+    
+    // Create and play a short test tone
+    try {
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 440;
+      gainNode.gain.value = 0.1;
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      
+      oscillator.start();
+      setTimeout(() => oscillator.stop(), 200);
+      console.log("Test tone played");
+    } catch (e) {
+      console.error("Failed to play test tone:", e);
+    }
+  };
 
   // Render SliceConfig with proper values and a new forced update approach
   const renderSliceConfig = () => {
@@ -375,91 +413,59 @@ function App() {
       return renderSliceConfig();
     }
 
+    // Replace this section to remove the duplicate Edit BPM button
     return (
       <>
-        <div className="w-full max-w-4xl mb-4">
-          <PlaybackControls
-            isPlaying={isPlaying}
-            isRecording={isRecording}
-            hasRecording={recordings.length > 0}
-            slicePlaybackRate={slicePlaybackRate}
-            transitionPlaybackRate={transitionPlaybackRate}
-            debouncedSliceRate={debouncedSliceRate}
-            debouncedTransRate={debouncedTransRate}
-            isLoading={isLoading}
-            noSlices={slices.length === 0}
-            onTogglePlayback={togglePlayback}
-            onToggleRecording={toggleRecording}
-            onSliceRateChange={setSlicePlaybackRate}
-            onTransitionRateChange={setTransitionPlaybackRate}
-            onShowRecordings={handleShowRecordings}
-            stretchingQuality={stretchingQuality}
-            onQualityChange={handleQualityChange}
-          />
-
-          <div className="text-xs text-gray-400 flex gap-2 items-center mt-2">
-            <span className="font-medium text-white mr-2">
-              {audioFile?.name}
-            </span>
-            <span>•</span>
-            <button
-              onClick={() => setShowConfig(true)}
-              className="text-yellow-400 hover:text-yellow-300"
-            >
-              Edit BPM
-            </button>
-            <span>•</span>
-            <button
-              onClick={handleReset}
-              className="text-yellow-400 hover:text-yellow-300"
-            >
-              Upload a different file
-            </button>
-          </div>
+        <div className="w-full flex items-center mb-1">
+          <span className="text-xs text-yellow-400/80 font-medium truncate">
+            {audioFile?.name}
+          </span>
         </div>
 
-        {slices.length > 0 && (
-          <div className="flex-1 overflow-hidden w-full">
-            <SliceGrid
-              slices={slices}
-              activeSlice={activeSlice}
-              onSliceClick={handleSliceClick}
-            />
-          </div>
-        )}
+        <PlaybackControls
+          isPlaying={isPlaying}
+          isRecording={isRecording}
+          hasRecording={recordings.length > 0}
+          slicePlaybackRate={slicePlaybackRate}
+          transitionPlaybackRate={transitionPlaybackRate}
+          debouncedSliceRate={debouncedSliceRate}
+          debouncedTransRate={debouncedTransRate}
+          isLoading={isLoading}
+          noSlices={slices.length === 0}
+          onTogglePlayback={togglePlayback}
+          onToggleRecording={toggleRecording}
+          onSliceRateChange={setSlicePlaybackRate}
+          onTransitionRateChange={setTransitionPlaybackRate}
+          onShowRecordings={handleShowRecordings}
+          stretchingQuality={stretchingQuality}
+          onQualityChange={handleQualityChange}
+          onEditBpm={() => setShowConfig(true)}
+          onUploadNewFile={handleReset}
+          compact={true}
+          onTestAudio={testAudio}
+        />
+
+        <div className="flex-1 w-full overflow-hidden bg-black/10 rounded-lg">
+          <SliceGrid 
+            slices={slices}
+            onSliceClick={handleSliceClick}
+            activeSlice={activeSlice}
+          />
+        </div>
       </>
     );
   };
 
+  // Update the main container layout to be more space-efficient
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col items-center p-2 sm:p-4 md:p-8 h-screen overflow-hidden">
-      {isLoading && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
-          <div className="bg-gray-900 p-6 rounded-lg shadow-lg flex flex-col items-center">
-            <Loader className="animate-spin text-yellow-400 mb-3" size={32} />
-            <p className="text-white font-medium">Processing audio...</p>
-          </div>
-        </div>
-      )}
-
-      {showRecordings && (
-        <RecordingsList
-          recordings={formatRecordingsForList(recordings)}
-          onClose={() => setShowRecordings(false)}
-          onDownload={downloadRecording}
-          onPlayPause={playPauseRecording}
-          onDelete={deleteRecording}
-          currentlyPlaying={currentlyPlaying}
-        />
-      )}
-
-      <Header compact={isMobileDevice} />
-
-      <div className="w-full max-w-4xl flex-1 flex flex-col items-center justify-center overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-black to-gray-900 text-white flex flex-col items-center p-0.5 sm:p-1 md:p-2 h-screen overflow-hidden">
+      <Header compact={true} />
+      
+      <div className="w-full max-w-5xl flex-1 flex flex-col items-center overflow-hidden py-1 px-0.5">
         {renderContent()}
       </div>
 
-      {isMobileDevice && <div className="h-2 w-full"></div>}
+      <div className="h-safe-bottom w-full"></div>
     </div>
   );
 }

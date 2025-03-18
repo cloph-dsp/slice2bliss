@@ -205,8 +205,14 @@ export function useAudioEngine() {
   }, [audioBuffer, audioFile]);
 
   const playSlice = useCallback((index: number, rate = 1, bpm = 120, transitionSpeed = 1) => {
-    audioEngine.playSlice(index, rate, bpm, transitionSpeed);
-    setActiveSlice(index);
+    console.log(`Playing slice ${index} with rate=${rate}, bpm=${bpm}, transitionSpeed=${transitionSpeed}`);
+    try {
+      audioEngine.playSlice(index, rate, bpm, transitionSpeed);
+      setActiveSlice(index);
+      console.log("Slice playback initiated successfully");
+    } catch (error) {
+      console.error("Error during slice playback:", error);
+    }
   }, []);
 
   const updatePlaybackRate = useCallback((rate: number) => {

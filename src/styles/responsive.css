@@ -205,3 +205,7 @@
     gap: 5px;
   }
 }
+
+.h-safe-bottom {
+  height: env(safe-area-inset-bottom, 4px);
+}

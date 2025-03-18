@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AudioSlice } from '../services/AudioPlaybackEngine';
 import AudioWaveform from './AudioWaveform';
 
@@ -10,195 +10,113 @@ interface SliceGridProps {
 
 const SliceGrid: React.FC<SliceGridProps> = ({ slices, activeSlice, onSliceClick }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isOverflowed, setIsOverflowed] = useState(false);
-  const [gridDimensions, setGridDimensions] = useState({ columns: 4, size: 80 });
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
-
-  const calculateGridLayout = (container: HTMLDivElement | null, sliceCount: number) => {
-    if (!container) {
-      return { columns: 4, size: 80 }; // Default dimensions
-    }
-
-    const { width, height } = container.getBoundingClientRect();
-    const count = sliceCount;
-
-    // Update orientation state
-    setOrientation(width > height ? 'landscape' : 'portrait');
-
-    // Define boundaries for sizing
-    const MIN_BUTTON_SIZE = Math.max(40, Math.min(52, width / 8));
-    const MAX_BUTTON_SIZE = Math.min(110, width / 3);
-
-    // Calculate container aspect ratio
-    const containerAspectRatio = width / height;
-
-    // Dynamic calculation of optimal columns
-    let optimalColumns: number;
-    if (count <= 3) {
-      optimalColumns = count;
-    } else if (count <= 8) {
-      optimalColumns = containerAspectRatio > 1.5 ? 4 : containerAspectRatio > 1 ? 3 : 2;
-    } else {
-      const baseColumns = Math.round(Math.sqrt(count));
-      const aspectMultiplier = containerAspectRatio > 1.5 ? 1.4 : containerAspectRatio > 1 ? 1.2 : 0.8;
-      const aspectAdjustedColumns = Math.round(baseColumns * aspectMultiplier);
-      const densityFactor = count > 100 ? 1.3 : count > 64 ? 1.2 : count > 36 ? 1.1 : 1.0;
-      optimalColumns = Math.max(2, Math.round(aspectAdjustedColumns * densityFactor));
-    }
-
-    // Calculate adaptive gap size
-    const gapSize = width < 480 ? (count > 32 ? 4 : 6) : count > 100 ? 6 : count > 64 ? 8 : count > 36 ? 10 : 12;
-
-    // Calculate available space and max possible columns
-    const availableWidth = width - (width < 640 ? 8 : 16);
-    const maxPossibleColumns = Math.floor((availableWidth + gapSize) / (MIN_BUTTON_SIZE + gapSize));
-    const columns = Math.min(optimalColumns, maxPossibleColumns);
-
-    // Calculate button size
-    const availableSpacePerButton = (availableWidth - (gapSize * (columns - 1))) / columns;
-    const rows = Math.ceil(count / columns);
-    const availableHeight = height - (width < 640 ? 8 : 16);
-    const maxHeightPerButton = (availableHeight - (gapSize * (rows - 1))) / rows;
-    let buttonSize = Math.min(availableSpacePerButton, maxHeightPerButton);
-
-    // Apply size constraints and progressive reduction
-    buttonSize = Math.max(MIN_BUTTON_SIZE, Math.min(MAX_BUTTON_SIZE, buttonSize));
-    if (count > 100) {
-      buttonSize *= Math.min(0.8, Math.max(0.6, 100 / count));
-    } else if (count > 64) {
-      buttonSize *= Math.min(0.9, Math.max(0.7, 64 / count));
-    }
-
-    return { columns, size: Math.floor(buttonSize) };
+  
+  // Get more optimal grid columns based on count and container size
+  const getGridClasses = () => {
+    const count = slices.length;
+    
+    // Use more granular column counts for better space utilization
+    if (count <= 2) return "grid-cols-2"; // 1-2 slices: 2 columns
+    if (count <= 6) return "grid-cols-3"; // 3-6 slices: 3 columns
+    if (count <= 12) return "grid-cols-4"; // 7-12 slices: 4 columns
+    if (count <= 20) return "grid-cols-5"; // 13-20 slices: 5 columns
+    if (count <= 30) return "grid-cols-6"; // 21-30 slices: 6 columns
+    if (count <= 42) return "grid-cols-7"; // 31-42 slices: 7 columns
+    if (count <= 56) return "grid-cols-8"; // 43-56 slices: 8 columns
+    return "grid-cols-9"; // 57+ slices: 9 columns (highest density)
   };
   
-  // Calculate optimal grid layout based on container size and slice count
-  useEffect(() => {
-    const updateGridLayout = () => {
-      setGridDimensions(calculateGridLayout(containerRef.current, slices.length));
-    };
-    
-    // Initialize layout
-    updateGridLayout();
-    
-    // Set up resize observer and event listeners
-    const resizeObserver = new ResizeObserver(() => updateGridLayout());
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
-    window.addEventListener('resize', updateGridLayout);
-    window.addEventListener('orientationchange', updateGridLayout);
-    
-    return () => {
-      if (containerRef.current) {
-        resizeObserver.unobserve(containerRef.current);
-      }
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', updateGridLayout);
-      window.removeEventListener('orientationchange', updateGridLayout);
-    };
-  }, [slices.length]);
+  // Calculate optimal gap size based on slice count
+  const getGapSize = () => {
+    const count = slices.length;
+    if (count <= 9) return "gap-4";
+    if (count <= 25) return "gap-3";
+    if (count <= 49) return "gap-2";
+    return "gap-1"; // Very dense grid
+  };
   
-  // Check if content is overflowed
+  // Check if grid has overflow and apply appropriate class
   useEffect(() => {
     const checkOverflow = () => {
       if (containerRef.current) {
-        const { scrollHeight, clientHeight } = containerRef.current;
-        setIsOverflowed(scrollHeight > clientHeight + 5); // Add small threshold
+        const hasOverflow = containerRef.current.scrollHeight > containerRef.current.clientHeight;
+        containerRef.current.classList.toggle('overflowed', hasOverflow);
       }
     };
     
+    // Check on mount and when slice count changes
     checkOverflow();
     window.addEventListener('resize', checkOverflow);
     
-    return () => {
-      window.removeEventListener('resize', checkOverflow);
-    };
-  }, [slices.length, gridDimensions]);
-  
-  // Generate grid style based on calculated dimensions
-  const gridStyle = useMemo(() => {
-    const { columns, size } = gridDimensions;
-    
-    // Adaptive gap based on button size, but with a floor value
-    const gap = Math.max(4, Math.min(12, Math.floor(size * 0.1)));
-    
-    return {
-      display: 'grid',
-      gridTemplateColumns: `repeat(${columns}, ${Math.floor(size)}px)`,
-      gap: `${gap}px`,
-      width: '100%',
-      justifyContent: 'center',
-      padding: orientation === 'portrait' && window.innerWidth < 480 ? '4px' : '8px'
-    };
-  }, [gridDimensions, orientation]);
-  
-  // Calculate button style with consistent font sizing
-  const getButtonStyle = (index: number) => {
-    const { size } = gridDimensions;
-    
-    // Progressive font sizing based on button size
-    const fontSize = Math.max(12, Math.min(18, Math.floor(size / 4)));
-    
-    return {
-      width: `${size}px`,
-      height: `${size}px`,
-      fontSize: `${fontSize}px`,
-      fontWeight: 600
-    };
-  };
+    return () => window.removeEventListener('resize', checkOverflow);
+  }, [slices.length]);
   
   return (
     <div 
       ref={containerRef}
-      className={`slice-grid-container overflow-y-auto w-full h-full pb-2 px-0 ${isOverflowed ? 'overflowed' : ''} ${orientation}`}
+      className="w-full h-full p-4 slice-grid-container overflow-auto"
       data-slice-count={slices.length}
-      data-orientation={orientation}
     >
-      <div style={gridStyle} className="w-full">
-        {slices.map((slice, index) => {
-          const isActive = activeSlice === index;
-          return (
-            <button
-              key={slice.id || `slice-${index}`}
-              onClick={() => onSliceClick(index)}
-              style={getButtonStyle(index)}
-              className={`
-                rounded-lg overflow-hidden relative
-                ${isActive 
-                  ? 'playing active-slice-animation' 
-                  : 'bg-slate-800 hover:bg-slate-700'}
-                transition-all duration-200 flex items-center justify-center
-              `}
-              aria-label={`Slice ${index + 1}`}
-              aria-pressed={isActive}
+      <div className={`grid ${getGridClasses()} ${getGapSize()} w-full auto-rows-fr`}>
+        {slices.map((slice, index) => (
+          <div 
+            key={index}
+            onClick={() => onSliceClick(index)}
+            className={`
+              aspect-square rounded-lg flex flex-col items-center justify-center
+              transition-all duration-200 cursor-pointer relative overflow-hidden
+              ${activeSlice === index 
+                ? 'bg-yellow-400 text-black scale-[0.95] active-slice-animation' 
+                : 'bg-gray-800 hover:bg-gray-700 hover:scale-[1.02]'
+              }
+            `}
+          >
+            {/* Waveform overlay with playback animation */}
+            <div 
+              className={`absolute inset-0 ${activeSlice === index ? 'waveform-playing' : 'opacity-40'}`}
+              style={{
+                position: 'relative',
+                overflow: 'hidden'
+              }}
             >
-              {/* Waveform background */}
-              <div className={`absolute inset-0 flex items-center justify-center opacity-30 ${slices.length > 36 ? 'hidden sm:flex' : ''}`}>
-                <AudioWaveform
-                  buffer={slice.buffer}
-                  color={isActive ? "#ffffff" : "#f7dc6f"}
-                  width={Math.max(30, gridDimensions.size - 10)}
-                  height={Math.max(15, Math.floor(gridDimensions.size / 2))}
-                  className="z-0"
-                />
-              </div>
-              
-              {/* Active slice animation overlay */}
-              {isActive && (
-                <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 to-yellow-500 z-0 animate-pulse-subtle"></div>
+              {slice.buffer && (
+                <>
+                  {/* Static waveform */}
+                  <AudioWaveform 
+                    buffer={slice.buffer} 
+                    color={activeSlice === index ? '#444444' : '#f7dc6f'} 
+                    width="100%" 
+                    height="100%" 
+                    lineWidth={activeSlice === index ? 2.5 : 2}
+                  />
+                  
+                  {/* Playback position indicator */}
+                  {activeSlice === index && (
+                    <div 
+                      className="playback-indicator"
+                      style={{
+                        '--slice-duration': `${slice.metadata?.duration || 1}s`
+                      } as React.CSSProperties}
+                    ></div>
+                  )}
+                </>
               )}
-              
-              {/* Slice number */}
-              <span className={`
-                relative z-10 font-medium 
-                ${isActive ? 'text-black' : 'text-slate-200'}
-              `}>
-                {index + 1}
-              </span>
-            </button>
-          );
-        })}
+            </div>
+            
+            {/* Slice number - dynamically sized based on grid density */}
+            <div 
+              className="z-10 font-bold slice-number"
+              style={{
+                fontSize: slices.length > 64 ? '1rem' : 
+                        slices.length > 36 ? '1.25rem' : 
+                        slices.length > 16 ? '1.5rem' : 
+                        slices.length > 9 ? '1.75rem' : '2rem'
+              }}
+            >
+              {index + 1}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

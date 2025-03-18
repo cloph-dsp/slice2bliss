@@ -3,8 +3,8 @@ import React, { useMemo } from 'react';
 interface AudioWaveformProps {
   buffer: AudioBuffer;
   color?: string;
-  height?: number;
-  width?: number;
+  height?: number | string;  // Updated to accept string or number
+  width?: number | string;   // Updated to accept string or number
   className?: string;
   lineWidth?: number;
   highQuality?: boolean;
@@ -39,19 +39,23 @@ const AudioWaveform: React.FC<AudioWaveformProps> = ({
       dataPoints.push(channelData[i]);
     }
 
+    // Handle width and height values
+    const svgWidth = typeof width === 'number' ? width : 100;
+    const svgHeight = typeof height === 'number' ? height : 40;
+
     // Normalize data points to fit in height
     const normalizedData = dataPoints.map(point => {
-      const normalized = ((point + 1) / 2) * height;
-      return Math.max(0, Math.min(height, normalized)); // Clamp to valid range
+      const normalized = ((point + 1) / 2) * svgHeight;
+      return Math.max(0, Math.min(svgHeight, normalized)); // Clamp to valid range
     });
 
     // Calculate width of each segment
-    const segmentWidth = width / normalizedData.length;
+    const segmentWidth = svgWidth / normalizedData.length;
     
     // Generate SVG path
-    let path = `M 0,${height/2}`;
+    let path = `M 0,${svgHeight/2}`;
     normalizedData.forEach((point, i) => {
-      path += ` L ${i * segmentWidth},${height - point}`;
+      path += ` L ${i * segmentWidth},${svgHeight - point}`;
     });
     
     return path;
@@ -61,12 +65,16 @@ const AudioWaveform: React.FC<AudioWaveformProps> = ({
     return null;
   }
 
+  // Use numeric values for viewBox calculation
+  const viewBoxWidth = typeof width === 'number' ? width : 100;
+  const viewBoxHeight = typeof height === 'number' ? height : 40;
+
   return (
     <svg 
       width={width} 
       height={height} 
       className={className}
-      viewBox={`0 0 ${width} ${height}`}
+      viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
       preserveAspectRatio="none"
     >
       <path

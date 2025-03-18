@@ -76,42 +76,224 @@ export class TimeStretcher {
     preservePitch: boolean = true,
     quality: 'low' | 'medium' | 'high' = 'medium'
   ): AudioBufferSourceNode {
-    // Simple source for when pitch preservation isn't needed or ratio is ~1.0
-    if (!preservePitch || Math.abs(timeRatio - 1.0) < 0.01) {
-      const source = this.audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.playbackRate.value = timeRatio;
-      return source;
-    }
-    
-    // For more advanced stretching, we'll use a granular approach with overlapping grains
-    // Create the source node that will be returned
+    // Always use the class's audioContext, not a new one
     const source = this.audioContext.createBufferSource();
     
-    // Adjust grain parameters based on quality
-    let grainSize = quality === 'high' ? 4096 : quality === 'medium' ? 2048 : 1024;
-    let overlap = quality === 'high' ? 0.75 : quality === 'medium' ? 0.5 : 0.25;
-    
-    // This implementation uses the Web Audio API's built-in playbackRate with 
-    // detune compensation - a simplified approach for demonstration.
-    // For production, consider implementing a true granular synthesis or phase vocoder.
-    source.buffer = buffer;
-    source.playbackRate.value = timeRatio;
-    
-    // Apply pitch compensation using detune, but only if the property exists
-    if (source.detune) {
-      // detune is in cents (100 cents = 1 semitone)
-      const pitchCompensation = -1200 * Math.log2(timeRatio);
-      source.detune.value = pitchCompensation;
+    // For extremely slow rates, pre-process the buffer to minimize artifacts
+    let processedBuffer = buffer;
+    if (timeRatio < 0.3 && preservePitch) {
+      // For very slow playback, apply additional anti-click processing
+      processedBuffer = this.applyExtremeTimeStretchProcessing(buffer, timeRatio);
+      console.log(`Applied extreme time-stretch processing for ratio: ${timeRatio}`);
     }
     
-    // For a real implementation, we'd create a custom AudioWorklet
-    // that performs proper granular time-stretching here.
+    source.buffer = processedBuffer;
     
-    // Add uniqueID for tracking this source
-    (source as any).uniqueId = uuidv4();
+    // Apply playback rate
+    source.playbackRate.value = timeRatio;
+    
+    if (preservePitch) {
+      // Use preservesPitch property if available
+      if ('preservesPitch' in source) {
+        (source as any).preservesPitch = true;
+      }
+    }
+    
+    // Add a unique ID for tracking
+    (source as any).uniqueId = crypto.randomUUID ? crypto.randomUUID() : `ts-${Date.now()}`;
     
     return source;
+  }
+  
+  /**
+   * Process buffer for extreme time-stretching (very slow playback)
+   * This applies specialized pre-processing to minimize artifacts
+   */
+  private applyExtremeTimeStretchProcessing(buffer: AudioBuffer, timeRatio: number): AudioBuffer {
+    // Create a new buffer with the same properties
+    const processedBuffer = this.audioContext.createBuffer(
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate
+    );
+    
+    // Process each channel
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const inputData = buffer.getChannelData(channel);
+      const outputData = processedBuffer.getChannelData(channel);
+      
+      // Copy the data
+      for (let i = 0; i < buffer.length; i++) {
+        outputData[i] = inputData[i];
+      }
+      
+      // Apply adaptive low-pass filtering for smoother transitions
+      // Use more intense filtering for slower speeds
+      const cutoffFactor = Math.max(0.1, Math.min(0.95, timeRatio * 2));
+      this.applyAdaptiveLowPassFilter(outputData, cutoffFactor);
+      
+      // Apply zero-crossing aligned fade edges
+      const edgeFadeSamples = Math.min(
+        Math.floor(buffer.sampleRate * 0.08), // 80ms maximum (increased for slow speeds)
+        Math.floor(buffer.length * 0.15)  // or 15% of total length
+      );
+      
+      // Find optimal fade points using zero crossings for smoother transitions
+      const fadeInEnd = this.findOptimalTransitionPoint(outputData, 0, edgeFadeSamples);
+      const fadeOutStart = this.findOptimalTransitionPoint(
+        outputData, 
+        buffer.length - edgeFadeSamples,
+        buffer.length - 1
+      );
+      
+      // Apply smooth beginning with zero-crossing alignment
+      for (let i = 0; i < fadeInEnd; i++) {
+        // Use a combination of cubic and sine for ultra-smooth fade
+        const factor = i / fadeInEnd;
+        const gain = Math.pow(factor, 2) * (0.5 + 0.5 * Math.sin(factor * Math.PI - Math.PI/2));
+        outputData[i] *= gain;
+      }
+      
+      // Apply smooth ending with zero-crossing alignment
+      for (let i = 0; i < buffer.length - fadeOutStart; i++) {
+        const position = fadeOutStart + i;
+        const factor = (buffer.length - fadeOutStart - i) / (buffer.length - fadeOutStart);
+        // Use a combination of cubic and sine for ultra-smooth fade
+        const gain = Math.pow(factor, 2) * (0.5 + 0.5 * Math.sin(factor * Math.PI - Math.PI/2));
+        outputData[position] *= gain;
+      }
+    }
+    
+    return processedBuffer;
+  }
+  
+  /**
+   * Apply an adaptive low-pass filter with zero-phase distortion
+   * @param data The audio data to filter
+   * @param cutoffFactor Relative cutoff (0-1), lower values = more filtering
+   */
+  private applyAdaptiveLowPassFilter(data: Float32Array, cutoffFactor: number): void {
+    // First forward pass
+    const alpha = Math.max(0.01, Math.min(0.99, cutoffFactor));
+    let lastSample = 0;
+    const tempData = new Float32Array(data.length);
+    
+    // Forward pass with damping factor for low frequencies
+    for (let i = 0; i < data.length; i++) {
+      lastSample = alpha * data[i] + (1 - alpha) * lastSample;
+      tempData[i] = lastSample;
+    }
+    
+    // Reverse pass to eliminate phase distortion
+    lastSample = 0;
+    for (let i = data.length - 1; i >= 0; i--) {
+      lastSample = alpha * tempData[i] + (1 - alpha) * lastSample;
+      data[i] = lastSample;
+    }
+  }
+  
+  /**
+   * Find optimal transition point for fades using zero crossing and energy analysis
+   */
+  private findOptimalTransitionPoint(data: Float32Array, start: number, end: number): number {
+    const window = 8; // Window size for energy calculation
+    let bestPosition = start;
+    let minEnergy = Infinity;
+    
+    // Find position with minimum energy around zero crossings
+    for (let i = Math.max(window, start); i <= end - window; i++) {
+      // Check for zero crossing
+      if ((data[i] >= 0 && data[i-1] < 0) || (data[i] <= 0 && data[i-1] > 0)) {
+        // Calculate energy in a small window around this point
+        let energy = 0;
+        for (let j = -window; j <= window; j++) {
+          energy += data[i+j] * data[i+j];
+        }
+        
+        if (energy < minEnergy) {
+          minEnergy = energy;
+          bestPosition = i;
+        }
+      }
+    }
+    
+    return bestPosition;
+  }
+  
+  /**
+   * Apply a simple low-pass filter to smooth out audio data
+   * @param data The audio data to filter
+   * @param cutoff Relative cutoff (0-1), lower values = more filtering
+   */
+  private applyLowPassFilter(data: Float32Array, cutoff: number): void {
+    // Simple one-pole low-pass filter
+    const alpha = Math.max(0.01, Math.min(0.99, cutoff));
+    let lastSample = 0;
+    
+    for (let i = 0; i < data.length; i++) {
+      // y[n] = α * x[n] + (1 - α) * y[n-1]
+      lastSample = alpha * data[i] + (1 - alpha) * lastSample;
+      data[i] = lastSample;
+    }
+  }
+  
+  /**
+   * Apply anti-click measures during buffer switching in time stretcher
+   * Call this method when changing buffers or playback rates
+   */
+  protected applyAntiClickMeasures(
+    oldSource: AudioBufferSourceNode | null,
+    newSource: AudioBufferSourceNode,
+    context: AudioContext
+  ): void {
+    const now = context.currentTime;
+    
+    if (oldSource) {
+      // Create temporary gain node for the old source with enhanced fading
+      const oldGain = context.createGain();
+      oldSource.disconnect();
+      oldSource.connect(oldGain);
+      oldGain.connect(context.destination);
+      
+      // Multi-stage fade out for smoother transition
+      oldGain.gain.setValueAtTime(1.0, now);
+      oldGain.gain.setValueCurveAtTime(
+        new Float32Array([1.0, 0.9, 0.7, 0.5, 0.3, 0.1, 0.05, 0.01, 0.001]), 
+        now, 
+        0.08
+      );
+      
+      // Stop and clean up after fade
+      setTimeout(() => {
+        try { 
+          oldSource.stop(); 
+          oldGain.disconnect();
+        } catch(e) { /* ignore */ }
+      }, 100); // Extended timeout for smoother transition
+    }
+    
+    // Start new source with multi-stage fade in
+    const newGain = context.createGain();
+    newSource.disconnect();
+    newSource.connect(newGain);
+    newGain.connect(context.destination);
+    
+    // Apply precise multi-stage fade in
+    newGain.gain.setValueAtTime(0.0001, now);
+    newGain.gain.setValueCurveAtTime(
+      new Float32Array([0.0001, 0.01, 0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0]), 
+      now, 
+      0.08
+    );
+    
+    // Remove temporary gain node after fade
+    setTimeout(() => {
+      try {
+        newSource.disconnect();
+        newSource.connect(context.destination);
+        newGain.disconnect();
+      } catch(e) { /* ignore */ }
+    }, 100); // Extended for smoother transition
   }
   
   /**

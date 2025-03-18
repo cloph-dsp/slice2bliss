@@ -172,3 +172,97 @@
     filter: drop-shadow(0 0 2px rgba(247, 220, 111, 0.5));
   }
 }
+
+/* Update existing waveformPulse animation */
+@keyframes waveformPulse {
+  0% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes playbackScanline {
+  0% {
+    left: -5%;
+  }
+  100% {
+    left: 105%;
+  }
+}
+
+.waveform-playing {
+  animation: waveformPulse 1.2s infinite ease-in-out;
+  opacity: 0.7; /* Base opacity higher than inactive state */
+}
+
+.playback-indicator {
+  position: absolute;
+  top: 0;
+  left: -10%;
+  width: 5px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 10px 3px rgba(255, 255, 255, 0.8);
+  z-index: 2;
+  animation: playbackScanline var(--slice-duration, 1.5s) linear infinite;
+  pointer-events: none;
+}
+
+/* Grid transition animations */
+@keyframes gridEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.grid-enter {
+  animation: gridEnter 0.3s ease-out forwards;
+}
+
+/* Improved playback indicator animation based on slice count */
+.slice-grid-container[data-slice-count^="1"] .playback-indicator,
+.slice-grid-container[data-slice-count^="2"] .playback-indicator,
+.slice-grid-container[data-slice-count^="3"] .playback-indicator {
+  width: 4px;
+  box-shadow: 0 0 8px 2px rgba(255, 255, 255, 0.7);
+}
+
+.slice-grid-container[data-slice-count^="4"] .playback-indicator,
+.slice-grid-container[data-slice-count^="5"] .playback-indicator,
+.slice-grid-container[data-slice-count^="6"] .playback-indicator {
+  width: 3px;
+  box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.7);
+}
+
+.slice-grid-container[data-slice-count^="7"] .playback-indicator,
+.slice-grid-container[data-slice-count^="8"] .playback-indicator,
+.slice-grid-container[data-slice-count^="9"] .playback-indicator {
+  width: 2px;
+  box-shadow: 0 0 4px 1px rgba(255, 255, 255, 0.7);
+}
+
+/* Customize waveform animations based on slice density */
+@keyframes waveformDenseGlow {
+  0% { filter: drop-shadow(0 0 1px rgba(247, 220, 111, 0.4)); }
+  50% { filter: drop-shadow(0 0 3px rgba(247, 220, 111, 0.6)); }
+  100% { filter: drop-shadow(0 0 1px rgba(247, 220, 111, 0.4)); }
+}
+
+.slice-grid-container[data-slice-count^="5"] .active-slice-animation .slice-waveform,
+.slice-grid-container[data-slice-count^="6"] .active-slice-animation .slice-waveform,
+.slice-grid-container[data-slice-count^="7"] .active-slice-animation .slice-waveform,
+.slice-grid-container[data-slice-count^="8"] .active-slice-animation .slice-waveform,
+.slice-grid-container[data-slice-count^="9"] .active-slice-animation .slice-waveform {
+  animation: waveformDenseGlow 2s infinite ease-in-out;
+  opacity: 0.85;
+}
