@@ -112,13 +112,24 @@ export function applyFades(
 }
 
 /**
- * Calculate interval based on BPM, division, and transition playback rate
+ * Calculate interval based on BPM, slice length (division), transition speed,
+ * and slice playback rate.
  */
-export function calculateInterval(bpm: number, division: string, transitionPlaybackRate: number): number {
-  const beatsPerSecond = bpm / 60;
+export function calculateInterval(
+  bpm: number,
+  division: string,
+  transitionPlaybackRate: number,
+  slicePlaybackRate: number = 1
+): number {
   let divisionValue = 1;
 
   switch (division) {
+    case '1/1':
+      divisionValue = 4;
+      break;
+    case '1/2':
+      divisionValue = 2;
+      break;
     case '1/4':
       divisionValue = 1;
       break;
@@ -135,7 +146,13 @@ export function calculateInterval(bpm: number, division: string, transitionPlayb
       divisionValue = 0.25;
   }
 
-  return (divisionValue / beatsPerSecond) * 1000 / transitionPlaybackRate;
+  const safeBpm = Math.max(1, bpm);
+  const safeRate = Math.max(0.05, transitionPlaybackRate);
+  const safeSliceRate = Math.max(0.25, slicePlaybackRate);
+
+  // Base interval is determined by musical slice length (BPM + division),
+  // then adjusted by transition speed and effective slice playback speed.
+  return (divisionValue / (safeBpm / 60)) * 1000 / (safeRate * safeSliceRate);
 }
 
 /**

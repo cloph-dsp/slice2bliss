@@ -8,7 +8,7 @@ interface SliceConfigProps {
   initialDivision: string;
   onBpmChange: (bpm: number) => void;
   onDivisionChange: (division: string) => void;
-  detectBpm: () => Promise<{ bpm: number } | null>;
+  detectBpm: () => Promise<{ bpm: number; isValid?: boolean } | null>;
 }
 
 // This is a COMPLETELY controlled component 
@@ -35,7 +35,7 @@ const SliceConfig: React.FC<SliceConfigProps> = ({
 
   const handleDetectBpmClick = async () => {
     const detectedBpm = await detectBpm();
-    if (detectedBpm) {
+    if (detectedBpm && detectedBpm.bpm >= 60 && detectedBpm.bpm <= 200 && detectedBpm.isValid !== false) {
       onBpmChange(detectedBpm.bpm);
     }
   };
@@ -117,6 +117,7 @@ const SliceConfig: React.FC<SliceConfigProps> = ({
             <option value="1/4">Quarter note (1/4)</option>
             <option value="1/8">Eighth note (1/8)</option>
             <option value="1/16">Sixteenth note (1/16)</option>
+            <option value="1/32">Thirty-second note (1/32)</option>
           </select>
           <p className="mt-1 text-xs text-gray-400">
             Musical length of each slice

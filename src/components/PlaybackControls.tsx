@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Play, Pause, Download, Mic, Square, Settings, ChevronDown, ChevronUp, Edit, Upload } from 'lucide-react';
+import React from 'react';
+import { Play, Pause, Download, Mic, Square, Edit, Upload, Activity } from 'lucide-react';
+import { AudioQualityMetrics, StretchMode } from '../types/audio';
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -7,8 +8,6 @@ interface PlaybackControlsProps {
   hasRecording: boolean;
   slicePlaybackRate: number;
   transitionPlaybackRate: number;
-  debouncedSliceRate: number;
-  debouncedTransRate: number;
   isLoading: boolean;
   noSlices: boolean;
   onTogglePlayback: () => void;
@@ -18,27 +17,23 @@ interface PlaybackControlsProps {
   onShowRecordings: () => void;
   stretchingQuality: 'low' | 'medium' | 'high';
   onQualityChange: (quality: 'low' | 'medium' | 'high') => void;
+  stretchMode: StretchMode;
+  onStretchModeChange: (mode: StretchMode) => void;
+  smoothnessBias: number;
+  onSmoothnessBiasChange: (value: number) => void;
   onEditBpm: () => void;
   onUploadNewFile: () => void;
-  onTestAudio: () => void; // Add this prop
-  compact?: boolean;
+  onOpenDiagnostics: () => void;
+  qualityMetrics: AudioQualityMetrics;
+  recordingFormatLabel: string;
 }
 
-// Custom hook to track window size
-const useWindowSize = () => {
-  const [isCompact, setIsCompact] = useState(window.innerWidth < 480);
-  
-  useEffect(() => {
-    const handleResize = () => {
-      setIsCompact(window.innerWidth < 480);
-    };
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-  
-  return isCompact;
-};
+const qualityButtonClass = (active: boolean) =>
+  `px-2 py-1 rounded text-xs border transition-colors ${
+    active
+      ? 'bg-yellow-400 text-black border-yellow-300'
+      : 'bg-gray-800 text-gray-200 border-gray-700 hover:border-yellow-400'
+  }`;
 
 const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   isPlaying,
@@ -46,8 +41,6 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   hasRecording,
   slicePlaybackRate,
   transitionPlaybackRate,
-  debouncedSliceRate,
-  debouncedTransRate,
   isLoading,
   noSlices,
   onTogglePlayback,
@@ -57,172 +50,168 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   onShowRecordings,
   stretchingQuality,
   onQualityChange,
+  stretchMode,
+  onStretchModeChange,
+  smoothnessBias,
+  onSmoothnessBiasChange,
   onEditBpm,
   onUploadNewFile,
-  onTestAudio, // Add this prop
-  compact
+  onOpenDiagnostics,
+  qualityMetrics,
+  recordingFormatLabel,
 }) => {
-  const [showSettings, setShowSettings] = useState(false);
-  const isCompact = useWindowSize();
-  const [showSliders, setShowSliders] = useState(true);
-  
-  // For very small screens, provide option to collapse sliders
-  const toggleSliders = () => {
-    setShowSliders(!showSliders);
-  };
-  
   return (
-    <div className="relative bg-gray-900/80 rounded-lg shadow-md w-full p-2">
-      <div className="flex flex-wrap gap-2 items-center justify-between">
-        {/* Compact slider section */}
-        <div className="flex gap-2 items-center flex-grow max-w-xs">
-          <div className="flex flex-col w-full gap-1">
-            <div className="flex items-center gap-1">
-              <div className="w-8 text-xs">Slice</div>
-              <input
-                type="range"
-                min="0.25"
-                max="2"
-                step="0.25"
-                value={slicePlaybackRate}
-                onChange={(e) => onSliceRateChange(Number(e.target.value))}
-                className="flex-grow h-1.5 rounded-full accent-yellow-400"
-              />
-              <div className="w-8 text-right text-xs">{slicePlaybackRate}x</div>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-8 text-xs">Trans</div>
-              <input
-                type="range"
-                min="0.25"
-                max="4"
-                step="0.25"
-                value={transitionPlaybackRate}
-                onChange={(e) => onTransitionRateChange(Number(e.target.value))}
-                className="flex-grow h-1.5 rounded-full accent-yellow-400"
-              />
-              <div className="w-8 text-right text-xs">{transitionPlaybackRate}x</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Buttons in a more compact layout */}
-        <div className="flex gap-1 items-center">
+    <div className="w-full rounded-xl border border-gray-800 bg-gray-900/85 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <button
             onClick={onTogglePlayback}
             disabled={isLoading || noSlices}
-            className={`p-2 rounded-full transition-colors flex-shrink-0 ${
-              isLoading || noSlices ? 'bg-gray-700 opacity-50 cursor-not-allowed' : 
-              isPlaying ? 'bg-yellow-500 text-black hover:bg-yellow-400' : 'bg-yellow-400 text-black hover:bg-yellow-300'
+            className={`h-11 w-11 rounded-full transition-colors ${
+              isLoading || noSlices
+                ? 'bg-gray-700 opacity-50 cursor-not-allowed'
+                : 'bg-yellow-400 text-black hover:bg-yellow-300'
             }`}
-            title={isPlaying ? "Pause" : "Play"}
+            title={isPlaying ? 'Stop Random' : 'Start Random'}
           >
-            {isPlaying ? <Pause size={18} strokeWidth={2.5} /> : <Play size={18} strokeWidth={2.5} />}
+            {isPlaying ? <Pause size={18} className="mx-auto" /> : <Play size={18} className="mx-auto" />}
           </button>
 
           <button
             onClick={onToggleRecording}
-            className={`p-2 rounded-full transition-colors flex-shrink-0 ${
-              isRecording
-                ? "bg-red-600 text-white hover:bg-red-500 animate-pulse"
-                : "bg-yellow-400 text-black hover:bg-yellow-300"
+            className={`h-11 w-11 rounded-full transition-colors ${
+              isRecording ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-yellow-400 text-black hover:bg-yellow-300'
             }`}
-            title={isRecording ? "Stop Recording" : "Start Recording"}
+            title={isRecording ? 'Stop Recording' : 'Start Recording'}
           >
-            {isRecording ? <Square size={18} strokeWidth={2.5} /> : <Mic size={18} strokeWidth={2.5} />}
+            {isRecording ? <Square size={18} className="mx-auto" /> : <Mic size={18} className="mx-auto" />}
           </button>
 
           {hasRecording && (
             <button
               onClick={onShowRecordings}
-              className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-500 transition-colors flex-shrink-0"
+              className="h-11 w-11 rounded-full bg-blue-600 text-white hover:bg-blue-500 transition-colors"
               title="Show Recordings"
-              data-testid="show-recordings-button"
             >
-              <Download size={18} strokeWidth={2.5} />
+              <Download size={18} className="mx-auto" />
             </button>
           )}
-          
-          {/* Add the Edit BPM button */}
+
           <button
             onClick={onEditBpm}
-            className="bg-yellow-400 text-black p-2 rounded-full hover:bg-yellow-300 transition-colors flex-shrink-0"
+            className="h-11 w-11 rounded-full bg-gray-800 text-white hover:bg-gray-700 transition-colors border border-gray-700"
             title="Edit BPM"
           >
-            <Edit size={18} strokeWidth={2.5} />
-          </button>
-          
-          {/* Add the Upload New File button */}
-          <button
-            onClick={onUploadNewFile}
-            className="bg-yellow-400 text-black p-2 rounded-full hover:bg-yellow-300 transition-colors flex-shrink-0"
-            title="Upload a different file"
-          >
-            <Upload size={18} strokeWidth={2.5} />
+            <Edit size={18} className="mx-auto" />
           </button>
 
           <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="p-2 rounded-full transition-colors flex-shrink-0 bg-gray-800 text-white hover:bg-gray-700"
-            title="Time-stretching Settings"
+            onClick={onUploadNewFile}
+            className="h-11 w-11 rounded-full bg-gray-800 text-white hover:bg-gray-700 transition-colors border border-gray-700"
+            title="Upload New File"
           >
-            <Settings size={18} strokeWidth={2} />
+            <Upload size={18} className="mx-auto" />
           </button>
         </div>
+
+        <button
+          onClick={onOpenDiagnostics}
+          className="h-11 px-3 rounded-lg border border-gray-700 bg-gray-800 text-sm hover:border-yellow-400 transition-colors flex items-center gap-2"
+        >
+          <Activity size={16} />
+          Diagnostics
+        </button>
       </div>
-      
-      {showSettings && (
-        <div className={`absolute ${isCompact ? 'left-0' : 'right-0'} top-full mt-2 bg-gray-900 p-3 rounded-lg shadow-lg z-50 w-64`}>
-          <h3 className="text-sm font-medium mb-2">Time-stretching Quality</h3>
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="quality"
-                value="low"
-                checked={stretchingQuality === 'low'}
-                onChange={() => onQualityChange('low')}
-                className="mr-2"
-              />
-              <span className="text-sm">Low (Better Performance)</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="quality"
-                value="medium"
-                checked={stretchingQuality === 'medium'}
-                onChange={() => onQualityChange('medium')}
-                className="mr-2"
-              />
-              <span className="text-sm">Medium (Balanced)</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="quality"
-                value="high"
-                checked={stretchingQuality === 'high'}
-                onChange={() => onQualityChange('high')}
-                className="mr-2"
-              />
-              <span className="text-sm">High (Better Quality)</span>
-            </label>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <label className="text-xs">
+          <div className="mb-1 flex justify-between text-gray-300">
+            <span>Slice Speed</span>
+            <span>{slicePlaybackRate.toFixed(2)}x</span>
           </div>
-          {/* Add Test Audio button */}
-          <div className="mt-3 pt-3 border-t border-gray-700">
-            <button 
-              onClick={onTestAudio}
-              className="w-full bg-purple-700 hover:bg-purple-600 text-white py-2 px-4 rounded-md flex items-center justify-center"
-            >
-              <span className="mr-2">🔊</span> Test Audio
-            </button>
-            <p className="text-xs text-gray-400 mt-1">
-              Fix audio issues on mobile by testing the audio system
-            </p>
+          <input
+            type="range"
+            min="0.25"
+            max="2"
+            step="0.25"
+            value={slicePlaybackRate}
+            onChange={(e) => onSliceRateChange(Number(e.target.value))}
+            className="w-full"
+          />
+        </label>
+
+        <label className="text-xs">
+          <div className="mb-1 flex justify-between text-gray-300">
+            <span>Transition Speed</span>
+            <span>{transitionPlaybackRate.toFixed(2)}x</span>
           </div>
-        </div>
-      )}
+          <input
+            type="range"
+            min="0.25"
+            max="4"
+            step="0.25"
+            value={transitionPlaybackRate}
+            onChange={(e) => onTransitionRateChange(Number(e.target.value))}
+            className="w-full"
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-400 mr-1">Stretch Quality</span>
+        <button className={qualityButtonClass(stretchingQuality === 'low')} onClick={() => onQualityChange('low')}>Low</button>
+        <button className={qualityButtonClass(stretchingQuality === 'medium')} onClick={() => onQualityChange('medium')}>Medium</button>
+        <button className={qualityButtonClass(stretchingQuality === 'high')} onClick={() => onQualityChange('high')}>High</button>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-400 mr-1">Stretch Mode</span>
+        <button className={qualityButtonClass(stretchMode === 'auto')} onClick={() => onStretchModeChange('auto')}>Auto</button>
+        <button className={qualityButtonClass(stretchMode === 'hq')} onClick={() => onStretchModeChange('hq')}>HQ</button>
+        <button className={qualityButtonClass(stretchMode === 'native')} onClick={() => onStretchModeChange('native')}>Native</button>
+      </div>
+
+      <div className="mt-2">
+        <label className="text-xs">
+          <div className="mb-1 flex justify-between text-gray-300">
+            <span>Smoothness Bias</span>
+            <span>{smoothnessBias.toFixed(2)}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={smoothnessBias}
+            onChange={(e) => onSmoothnessBiasChange(Number(e.target.value))}
+            className="w-full"
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          Peak {qualityMetrics.peakDb.toFixed(1)} dB
+        </span>
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          RMS {qualityMetrics.rmsDb.toFixed(1)} dB
+        </span>
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          Clips {qualityMetrics.clipCount}
+        </span>
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          Drift {qualityMetrics.schedulerDriftMs.toFixed(1)} ms
+        </span>
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          HQ hit {((qualityMetrics.hqCacheHitRate || 0) * 100).toFixed(0)}%
+        </span>
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          HQ fallback {qualityMetrics.hqFallbackCount || 0}
+        </span>
+        <span className="px-2 py-1 rounded border border-gray-700 bg-gray-800">
+          {recordingFormatLabel}
+        </span>
+      </div>
     </div>
   );
 };

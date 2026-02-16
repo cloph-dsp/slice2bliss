@@ -54,12 +54,16 @@ export interface SliceOptions {
  */
 export interface PlaybackOptions {
   playbackRate?: number;
+  stretchMode?: StretchMode;
+  smoothnessBias?: number;
   detune?: number;
   loop?: boolean;
   fadeIn?: number;      // Deprecated, use fadeInDuration instead
   fadeOut?: number;     // Deprecated, use fadeOutDuration instead
   startTime?: number;   // Position in seconds to start playback from
   endTime?: number;     // Position in seconds to end playback
+  scheduledStartTime?: number; // Absolute audio-context start time
+  division?: string;      // Slice length division (e.g. 1/4, 1/8)
   fadeInDuration?: number;  // Duration of fade in (seconds)
   fadeOutDuration?: number; // Duration of fade out (seconds)
   bpm?: number;         // Beats per minute (for dynamic fade calculations)
@@ -98,12 +102,39 @@ export interface AudioProcessorOptions {
 export interface RecordingOptions {
   /** Recording audio quality (low, medium, high) */
   quality?: 'low' | 'medium' | 'high';
+  /** WAV bit depth */
+  bitDepth?: 16 | 24;
+  /** Number of output channels */
+  channels?: 1 | 2;
+  /** Output format */
+  format?: 'wav';
   /** MIME type for recording format */
   mimeType?: string;
   /** Whether to automatically stop recording after a duration */
   autoStop?: boolean;
   /** Duration in milliseconds after which to auto-stop */
   stopAfter?: number;
+}
+
+export interface AudioQualityMetrics {
+  peakDb: number;
+  rmsDb: number;
+  clipCount: number;
+  schedulerDriftMs: number;
+  contextState: AudioContextState;
+  hqCacheHitRate?: number;
+  hqFallbackCount?: number;
+  currentFadeMs?: number;
+  currentOverlapMs?: number;
+  stretchMode?: StretchMode;
+}
+
+export type StretchMode = 'native' | 'hq' | 'auto';
+
+export interface SchedulerConfig {
+  lookaheadMs: number;
+  tickMs: number;
+  queueDepth: number;
 }
 
 /**

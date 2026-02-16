@@ -1,17 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import audioEngine, { AudioSlice } from '../services/AudioPlaybackEngine';
-import { SliceOptions as OriginalSliceOptions } from '../types/audio';
+import {
+  AudioQualityMetrics,
+  SchedulerConfig,
+  SliceOptions as EngineSliceOptions,
+  StretchMode,
+} from '../types/audio';
 import { BpmDetectionResult } from '../types/bpm';
 import { detectBPM } from '../services/BpmDetectionService';
 import { testBpmDetection } from '../utils/fileNameUtils';
 
-// Add this interface if it doesn't exist
-interface SliceOptions {
-  bpm: number;
-  slicesPerBeat: number;
-  quantize: boolean;
-  normalizeOutput: boolean;
-}
+const DEFAULT_QUALITY_METRICS: AudioQualityMetrics = {
+  peakDb: -96,
+  rmsDb: -96,
+  clipCount: 0,
+  schedulerDriftMs: 0,
+  contextState: 'suspended',
+  hqCacheHitRate: 0,
+  hqFallbackCount: 0,
+  currentFadeMs: 0,
+  currentOverlapMs: 0,
+  stretchMode: 'auto',
+};
 
 export function useAudioEngine() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -19,52 +29,57 @@ export function useAudioEngine() {
   const [slices, setSlices] = useState<AudioSlice[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [activeSlice, setActiveSlice] = useState<number>(-1);
-
-  // Keep detectedBpm state but make isDetectingBpm private (using _)
   const [detectedBpm, setDetectedBpm] = useState<BpmDetectionResult | null>(null);
-  const [_isDetectingBpm, setIsDetectingBpm] = useState<boolean>(false);
+  const [schedulerState, setSchedulerState] = useState<{ running: boolean; schedulerDriftMs: number }>({
+    running: false,
+    schedulerDriftMs: 0,
+  });
+  const [qualityMetrics, setQualityMetrics] = useState<AudioQualityMetrics>(DEFAULT_QUALITY_METRICS);
+  const [currentCrossfadeDuration, setCurrentCrossfadeDuration] = useState<number>(0);
 
-  // Keep references to loaded file/buffer for BPM detection
   const fileRef = useRef<File | null>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
 
-  // Add the missing state for sliceOptions
-  const [sliceOptions, setSliceOptions] = useState<SliceOptions>({
-    bpm: 120,
-    slicesPerBeat: 4,
-    quantize: true,
-    normalizeOutput: false,
-  });
-
-  // Update refs when state changes
   useEffect(() => {
     fileRef.current = audioFile;
     bufferRef.current = audioBuffer;
   }, [audioFile, audioBuffer]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setSchedulerState(audioEngine.getSchedulerState());
+      setQualityMetrics(audioEngine.getQualityMetrics());
+      setCurrentCrossfadeDuration(audioEngine.getCurrentCrossfadeDuration());
+    }, 150);
+
+    return () => window.clearInterval(id);
+  }, []);
+
   const loadAudioFile = useCallback(async (file: File) => {
     setIsLoading(true);
     setAudioFile(file);
-    fileRef.current = file; // Set the ref immediately for fast access
+    fileRef.current = file;
 
     try {
       const buffer = await audioEngine.loadFile(file);
       setAudioBuffer(buffer);
-      bufferRef.current = buffer; // Set the ref immediately
-      setIsLoading(false);
+      bufferRef.current = buffer;
       return buffer;
-    } catch (error) {
-      console.error('Error loading audio file:', error);
+    } finally {
       setIsLoading(false);
-      throw error;
     }
   }, []);
 
-  const getBpmFromFilename = (filename: string): BpmDetectionResult | null => {
-    const filenameTest = testBpmDetection(filename);
-    if (filenameTest.detected && filenameTest.bpm) {
-      console.log(`Quick BPM detection from filename: ${filenameTest.bpm} BPM`);
+  const detectBpm = useCallback(async () => {
+    const file = fileRef.current;
+    const buffer = bufferRef.current;
 
+    if (!buffer || !file) {
+      return null;
+    }
+
+    const filenameTest = testBpmDetection(file.name);
+    if (filenameTest.detected && filenameTest.bpm) {
       const quickResult: BpmDetectionResult = {
         bpm: filenameTest.bpm,
         confidence: filenameTest.confidence,
@@ -77,19 +92,14 @@ export function useAudioEngine() {
           source: 'filename',
         },
       };
-
+      setDetectedBpm(quickResult);
       return quickResult;
     }
-    return null;
-  };
 
-  const getBpmFromAudioAnalysis = async (
-    buffer: AudioBuffer,
-    filename: string
-  ): Promise<BpmDetectionResult | null> => {
-    const bpm = await detectBPM(buffer, filename);
+    try {
+      const bpm = await detectBPM(buffer, file.name);
+      if (!bpm) return null;
 
-    if (bpm) {
       const result: BpmDetectionResult = {
         bpm,
         confidence: 1,
@@ -102,68 +112,10 @@ export function useAudioEngine() {
           source: 'audio-analysis',
         },
       };
-      console.log(`BPM detection result: ${bpm} BPM`);
+
+      setDetectedBpm(result);
       return result;
-    }
-    return null;
-  };
-
-  /**
-   * Simplified BPM detection using primarily filename - now works silently
-   */
-  const detectBpm = useCallback(async () => {
-    // Get file and buffer from refs instead of state to avoid timing issues
-    const file = fileRef.current;
-    const buffer = bufferRef.current;
-
-    if (!buffer || !file) {
-      console.error('Cannot detect BPM: audio buffer or file not available');
-      console.log('Current refs: file=', !!file, 'buffer=', !!buffer);
-      return null;
-    }
-
-    setIsDetectingBpm(true);
-    console.log('Starting silent BPM detection...');
-
-    try {
-      // First, try direct filename detection to avoid service overhead
-      const filenameResult = getBpmFromFilename(file.name);
-      if (filenameResult) {
-        setDetectedBpm(filenameResult);
-        setIsDetectingBpm(false);
-        return filenameResult;
-      }
-
-      // If quick detection fails, use the detectBPM function
-      const analysisResult = await getBpmFromAudioAnalysis(buffer, file.name);
-      if (analysisResult) {
-        setDetectedBpm(analysisResult);
-        setIsDetectingBpm(false);
-        return analysisResult;
-      }
-
-      // No valid BPM detected - don't set a default value
-      setIsDetectingBpm(false);
-      setDetectedBpm({
-        bpm: 0,  // Use 0 to indicate no valid BPM detected
-        confidence: 0,
-        isValid: false,
-        details: {
-          onsetCount: 0,
-          analysisTime: 0,
-          peakThreshold: 0,
-          rawBpm: 0,
-          source: 'none',
-          error: 'Could not detect BPM from file or audio analysis'
-        }
-      });
-      
-      return null;
     } catch (error) {
-      console.error('Error in BPM detection:', error);
-      setIsDetectingBpm(false);
-      
-      // Return null instead of a fallback with 120 BPM
       setDetectedBpm({
         bpm: 0,
         confidence: 0,
@@ -174,54 +126,62 @@ export function useAudioEngine() {
           peakThreshold: 0,
           rawBpm: 0,
           source: 'none',
-          error: error instanceof Error ? error.message : 'Unknown error during BPM detection'
-        }
+          error: error instanceof Error ? error.message : 'Unknown BPM detection error',
+        },
       });
-      
       return null;
     }
-  }, [fileRef, bufferRef, setDetectedBpm, getBpmFromFilename, getBpmFromAudioAnalysis]);
+  }, []);
 
-  const processAudio = useCallback(async (options: OriginalSliceOptions) => {
-    if (!audioBuffer || !audioFile) {
-      console.error('No audio loaded');
-      return false;
-    }
-
+  const processAudio = useCallback(async (options: EngineSliceOptions) => {
+    if (!audioBuffer || !audioFile) return false;
     setIsLoading(true);
-
     try {
-      console.log('Processing audio with options:', options);
       const generatedSlices = await audioEngine.sliceAudio(options);
-      console.log(`Generated ${generatedSlices.length} slices`);
       setSlices(generatedSlices);
-      setIsLoading(false);
       return true;
     } catch (error) {
       console.error('Error processing audio:', error);
-      setIsLoading(false);
       return false;
+    } finally {
+      setIsLoading(false);
     }
   }, [audioBuffer, audioFile]);
 
-  const playSlice = useCallback((index: number, rate = 1, bpm = 120, transitionSpeed = 1) => {
-    console.log(`Playing slice ${index} with rate=${rate}, bpm=${bpm}, transitionSpeed=${transitionSpeed}`);
-    try {
-      audioEngine.playSlice(index, rate, bpm, transitionSpeed);
-      setActiveSlice(index);
-      console.log("Slice playback initiated successfully");
-    } catch (error) {
-      console.error("Error during slice playback:", error);
-    }
+  const playSlice = useCallback((index: number, rate = 1, bpm = 120, transitionSpeed = 1, division = '1/4') => {
+    audioEngine.playSlice(index, rate, bpm, transitionSpeed, undefined, division);
+    setActiveSlice(index);
+  }, []);
+
+  const startRandomPlayback = useCallback((config?: Partial<{
+    playbackRate: number;
+    bpm: number;
+    division: string;
+    transitionSpeed: number;
+  }>) => {
+    audioEngine.startRandomPlayback(config);
+    setSchedulerState(audioEngine.getSchedulerState());
+  }, []);
+
+  const stopRandomPlayback = useCallback(() => {
+    audioEngine.stopRandomPlayback();
+    setActiveSlice(-1);
+    setSchedulerState(audioEngine.getSchedulerState());
   }, []);
 
   const updatePlaybackRate = useCallback((rate: number) => {
     audioEngine.updatePlaybackRate(rate);
   }, []);
 
+  const setSchedulerConfig = useCallback((config: Partial<SchedulerConfig>) => {
+    audioEngine.setSchedulerConfig(config);
+    setSchedulerState(audioEngine.getSchedulerState());
+  }, []);
+
   const stopAllPlayback = useCallback(() => {
     audioEngine.stopAllPlayback();
     setActiveSlice(-1);
+    setSchedulerState(audioEngine.getSchedulerState());
   }, []);
 
   const getRecordingDestination = useCallback(() => {
@@ -243,50 +203,23 @@ export function useAudioEngine() {
     setSlices([]);
     setActiveSlice(-1);
     setDetectedBpm(null);
+    setSchedulerState(audioEngine.getSchedulerState());
+    setQualityMetrics(audioEngine.getQualityMetrics());
+    setCurrentCrossfadeDuration(audioEngine.getCurrentCrossfadeDuration());
   }, []);
 
   const setStretchingQuality = useCallback((quality: 'low' | 'medium' | 'high') => {
     audioEngine.setStretchingQuality(quality);
   }, []);
 
-  // Add the handleSliceAudio function
-  const handleSliceAudio = useCallback(async () => {
-    if (!bufferRef.current) {
-      console.error('No audio buffer available for slicing');
-      return [];
-    }
+  const setStretchMode = useCallback((mode: StretchMode) => {
+    audioEngine.setStretchMode(mode);
+    setQualityMetrics(audioEngine.getQualityMetrics());
+  }, []);
 
-    try {
-      // Logic for slicing audio would go here
-      console.log(`Slicing audio with BPM: ${sliceOptions.bpm}, slices per beat: ${sliceOptions.slicesPerBeat}`);
-      
-      // Return slices (implementation depends on your app's needs)
-      return [];
-    } catch (error) {
-      console.error('Error slicing audio:', error);
-      return [];
-    }
-  }, [sliceOptions]);
-
-  const updateBpm = useCallback((newBpm: number) => {
-    setSliceOptions((prev: SliceOptions) => ({
-      ...prev,
-      bpm: newBpm,
-    }));
-
-    // Update detected BPM state if needed
-    if (detectedBpm) {
-      setDetectedBpm({
-        ...detectedBpm,
-        bpm: newBpm,
-      });
-    }
-
-    // Auto-slice if enabled
-    if (sliceOptions.quantize) {
-      handleSliceAudio();
-    }
-  }, [detectedBpm, setSliceOptions, sliceOptions, handleSliceAudio]);
+  const setSmoothnessBias = useCallback((value: number) => {
+    audioEngine.setSmoothnessBias(value);
+  }, []);
 
   return {
     audioFile,
@@ -295,11 +228,16 @@ export function useAudioEngine() {
     isLoading,
     activeSlice,
     detectedBpm,
-    // Do NOT expose isDetectingBpm to hide the detection process from UI
+    schedulerState,
+    qualityMetrics,
+    currentCrossfadeDuration,
     loadAudioFile,
     detectBpm,
     processAudio,
     playSlice,
+    startRandomPlayback,
+    stopRandomPlayback,
+    setSchedulerConfig,
     updatePlaybackRate,
     stopAllPlayback,
     getRecordingDestination,
@@ -307,9 +245,7 @@ export function useAudioEngine() {
     setActiveSlice,
     reset,
     setStretchingQuality,
-    sliceOptions,
-    setSliceOptions,
-    handleSliceAudio,
-    updateBpm
+    setStretchMode,
+    setSmoothnessBias,
   };
 }

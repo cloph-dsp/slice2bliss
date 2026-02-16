@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "vite build",
     "build:gh-pages": "cross-env GITHUB_PAGES=true vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0"
   },
   "dependencies": {
     "lucide-react": "^0.344.0",

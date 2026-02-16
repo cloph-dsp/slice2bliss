@@ -1,9 +1,16 @@
-import { AudioSegment, PlaybackOptions, SliceOptions } from '../types/audio';
+import {
+  AudioQualityMetrics,
+  AudioSegment,
+  PlaybackOptions,
+  SchedulerConfig,
+  SliceOptions,
+  StretchMode,
+} from '../types/audio';
 import { AudioCache } from './AudioCache';
 import { TimeStretcher, getTimeStretcher } from './TimeStretcher';
-import { calculateOptimalCrossfadeDuration, applyAdaptiveMultibandCrossfade, applyPhaseAlignedCrossfade, applyEqualPowerCrossfade, calculateTransientEnvelope, applyZeroClickCrossfade, applyUltraZeroClickCrossfade, applySlowRateCrossfade } from '../utils/crossfadeUtils';
-import { prepareBufferForPlayback, applySafeFallbackCrossfade } from '../utils/audioUtils';
-import { ensureAudioContextRunning } from '../utils/audioUtils';
+import { calculateOptimalCrossfadeDuration } from '../utils/crossfadeUtils';
+import { calculateInterval, prepareBufferForPlayback } from '../utils/audioUtils';
+import { PlaybackScheduler } from './PlaybackScheduler';
 
 export interface AudioSlice {
   buffer: AudioBuffer;
@@ -29,7 +36,6 @@ export class AudioPlaybackEngine {
   private gainNodes: Map<string, GainNode>;
   private masterGainNode: GainNode;
   private recordingDestination: MediaStreamAudioDestinationNode | null;
-  private sourceNodes: Map<number, AudioBufferSourceNode> = new Map();
   private activeSourceNode: AudioBufferSourceNode | null = null;
   private activeGainNode: GainNode | null = null;
   private audioBuffer: AudioBuffer | null = null;
@@ -37,12 +43,40 @@ export class AudioPlaybackEngine {
   private activeSliceIndex: number = -1;
   private timeStretcher: TimeStretcher;
   private stretchingQuality: 'low' | 'medium' | 'high' = 'medium';
+  private stretchMode: StretchMode = 'auto';
+  private smoothnessBias = 0.7;
   private lastPlayedTime: number = 0;
   private currentFadeParams: {fadeInDuration: number, fadeOutDuration: number} | null = null;
-  // Add this property to track recent speed changes
   private lastPlaybackRate: number = 1.0;
-  // Add a property to track UI visibility
   private playingUIVisible: boolean = true;
+  private scheduler: PlaybackScheduler;
+  private randomPlaybackConfig: {
+    playbackRate: number;
+    bpm: number;
+    division: string;
+    transitionSpeed: number;
+  } = {
+    playbackRate: 1,
+    bpm: 120,
+    division: '1/4',
+    transitionSpeed: 1,
+  };
+  private qualityMetrics: AudioQualityMetrics = {
+    peakDb: -96,
+    rmsDb: -96,
+    clipCount: 0,
+    schedulerDriftMs: 0,
+    contextState: 'suspended',
+    hqCacheHitRate: 0,
+    hqFallbackCount: 0,
+    currentFadeMs: 0,
+    currentOverlapMs: 0,
+    stretchMode: 'auto',
+  };
+  private hqCacheHits = 0;
+  private hqCacheMisses = 0;
+  private lastRandomSliceIndex = -1;
+  private recentRandomHistory: number[] = [];
 
   constructor(
     audioContext: AudioContext,
@@ -62,6 +96,7 @@ export class AudioPlaybackEngine {
 
     this.recordingDestination = recordingDestination;
     this.timeStretcher = getTimeStretcher(audioContext);
+    this.scheduler = new PlaybackScheduler(audioContext);
   }
 
   /**
@@ -69,6 +104,16 @@ export class AudioPlaybackEngine {
    */
   public setStretchingQuality(quality: 'low' | 'medium' | 'high'): void {
     this.stretchingQuality = quality;
+    this.timeStretcher.setQuality(quality);
+  }
+
+  public setStretchMode(mode: StretchMode): void {
+    this.stretchMode = mode;
+    this.qualityMetrics.stretchMode = mode;
+  }
+
+  public setSmoothnessBias(value: number): void {
+    this.smoothnessBias = Math.max(0, Math.min(1, value));
   }
 
   /**
@@ -139,381 +184,147 @@ export class AudioPlaybackEngine {
   /**
    * Play an audio segment with options and enhanced error handling
    */
-  public playSegment(
+  public async playSegment(
     segment: AudioSegment,
     options: PlaybackOptions = {}
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        // Resume audio context if suspended
-        if (this.audioContext.state === 'suspended') {
-          this.audioContext.resume().catch(err => {
-            console.error("Error resuming audio context:", err);
-            reject(err);
-            return;
-          });
-        }
+    if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume().catch(() => undefined);
+    }
 
-        // Extract segment ID for tracking
-        const segmentId = segment.id;
-        const isNewSegment = !this.activeSourceNodes.has(segmentId);
+    const segmentId = segment.id;
+    const previousGainNode = this.activeGainNode;
 
-        // Capture previous active gain node for crossfade
-        const previousGainNode = this.activeGainNode;
+    if (!segment.buffer || segment.buffer.length === 0) {
+      throw new Error('Invalid audio buffer');
+    }
 
-        // Check if buffer is valid
-        if (!segment.buffer || segment.buffer.length === 0) {
-          const error = new Error("Invalid audio buffer");
-          console.error(error);
-          reject(error);
-          return;
-        }
+    this.cache.set(segment);
 
-        // Add to cache for future quick access
-        this.cache.set(segment);
-
-        // Create source node with time-stretching if needed
-        let source: AudioBufferSourceNode;
-
-        try {
-          if (options.playbackRate !== undefined && options.playbackRate !== 1.0) {
-            // Use time-stretcher for pitch-preserving speed change
-            // The time stretcher should use the same audio context
-            source = this.timeStretcher.createTimeStretchedSource(
-              segment.buffer,
-              options.playbackRate,
-              true,  // Always preserve pitch
-              this.stretchingQuality
-            );
-          } else {
-            // Use regular source for normal playback
-            // Prepare buffer to avoid clicks
-            const preparedBuffer = prepareBufferForPlayback(segment.buffer, this.audioContext);
-
-            // Create source with prepared buffer
-            source = this.audioContext.createBufferSource();
-            source.buffer = preparedBuffer;
-          }
-
-          // Verify source context matches our context
-          if ((source as any).context && (source as any).context !== this.audioContext) {
-            throw new Error("Source created with different audio context");
-          }
-        } catch (error) {
-          console.error("Error creating audio source:", error);
-          reject(error);
-          return;
-        }
-
-        // Create gain node for this source (for fades)
-        const gainNode = this.audioContext.createGain();
-
-        // Calculate optimal fade durations based on musical context
-        const hasBpmInfo = typeof options.bpm === 'number';
-        const division = segment.metadata?.originalBoundaries ? "1/4" : "1/8"; // Fallback division
-
-        // Get optimal crossfade duration based on BPM and division
-        const optimalCrossfade = hasBpmInfo
-          ? calculateOptimalCrossfadeDuration(options.bpm || 120, division)
-          : 0.015; // 15ms default
-
-        // Determine and apply transition speeds
+        const playbackRate = Math.max(0.5, Math.min(2, options.playbackRate || 1.0));
         const transitionSpeed = options.transitionSpeed || 1.0;
+        const bpm = options.bpm || 120;
+        const division = options.division || '1/4';
+        const startTime = options.startTime !== undefined ? options.startTime : 0;
+        const endTime = options.endTime !== undefined ? options.endTime : segment.buffer.duration;
+        const offset = Math.max(0, Math.min(startTime, segment.buffer.duration));
+        const playDuration = Math.min(endTime - startTime, segment.buffer.duration - offset);
+        const boundedPlayDuration = Math.max(0.001, playDuration > 0 ? playDuration : (segment.buffer.duration - offset));
+        const now = this.audioContext.currentTime;
+        const scheduledStartTime = options.scheduledStartTime ?? now + 0.012;
+        const startAt = Math.max(now + 0.001, scheduledStartTime);
 
-        // Calculate fade durations differently for different speed ranges
-        // For faster transitions, we need LONGER fades to prevent clicks (counterintuitively)
-        let fadeInDuration, fadeOutDuration;
+        const clampedBuffer = this.applyHeadroomClamp(segment.buffer);
+        const preparedBuffer = prepareBufferForPlayback(clampedBuffer, this.audioContext);
+        const requestedStretchMode = options.stretchMode || this.stretchMode;
+        const resolvedStretchMode = this.timeStretcher.resolveStretchMode(requestedStretchMode, playbackRate);
 
-        const playbackRate = options.playbackRate || 1.0;
+        let source: AudioBufferSourceNode | null = null;
+        let sourceOffset = offset;
+        let sourceDuration = boundedPlayDuration;
+        let hqMissedDeadline = false;
 
-        // NEW: Handle extreme slow playback differently
-        if (playbackRate < 0.3) {
-          // For extremely slow playback, use much longer fades
-          const slowRateMultiplier = Math.max(2, (0.3 / playbackRate) * 1.2);
-          
-          fadeInDuration = options.fadeInDuration || 
-            Math.max(0.15, optimalCrossfade * slowRateMultiplier);
-          
-          fadeOutDuration = options.fadeOutDuration || 
-            Math.max(0.2, optimalCrossfade * slowRateMultiplier);
-          
-          console.log(`Using extended crossfades for slow rate (${playbackRate}x): in=${fadeInDuration.toFixed(3)}s, out=${fadeOutDuration.toFixed(3)}s`);
-        }
-        else if (transitionSpeed >= 3.5) {
-          // Extreme speeds need extreme crossfade times
-          const extraSpeedFactor = 3.5 + (transitionSpeed - 3.5) * 2.5; // Very aggressive scaling
-          fadeInDuration = options.fadeInDuration ||
-            Math.max(0.12, optimalCrossfade * extraSpeedFactor); // Minimum 120ms fade for highest speeds
-          fadeOutDuration = options.fadeOutDuration ||
-            Math.max(0.15, optimalCrossfade * extraSpeedFactor); // Even longer fade out
-
-          console.log(`Using ultra-extreme crossfade: in=${fadeInDuration.toFixed(3)}s, out=${fadeOutDuration.toFixed(3)}s`);
-        } else if (transitionSpeed >= 2.5) {
-          // Very high speed (2.5-3.5x) needs aggressive fades
-          const speedFactor = 2.2 + (transitionSpeed - 2.5) * 1.3;
-          fadeInDuration = options.fadeInDuration ||
-            Math.max(0.08, optimalCrossfade * speedFactor);
-          fadeOutDuration = options.fadeOutDuration ||
-            Math.max(0.1, optimalCrossfade * speedFactor);
-        } else if (transitionSpeed >= 1.5) {
-          // High speed (1.5-2.5x) needs longer fades
-          const speedFactor = 1.5 + (transitionSpeed - 1.5) * 0.7;
-          fadeInDuration = options.fadeInDuration ||
-            Math.max(0.05, optimalCrossfade * speedFactor);
-          fadeOutDuration = options.fadeOutDuration ||
-            Math.max(0.06, optimalCrossfade * speedFactor);
-        } else if (transitionSpeed > 1.0) {
-          // Moderate high speeds still need MORE crossfade time
-          const speedFactor = 1 + (transitionSpeed - 1) * 0.5;
-          fadeInDuration = options.fadeInDuration ||
-            Math.max(0.03, optimalCrossfade * speedFactor);
-          fadeOutDuration = options.fadeOutDuration ||
-            Math.max(0.035, optimalCrossfade * speedFactor);
+        if (Math.abs(playbackRate - 1.0) <= 0.001) {
+          source = this.timeStretcher.createNativeSource(preparedBuffer, 1, true);
+        } else if (resolvedStretchMode === 'native') {
+          source = this.timeStretcher.createNativeSource(preparedBuffer, playbackRate, true);
         } else {
-          // For normal/slow speeds, use the existing formula
-          fadeInDuration = options.fadeInDuration ||
-            (optimalCrossfade / Math.sqrt(transitionSpeed));
-          fadeOutDuration = options.fadeOutDuration ||
-            (optimalCrossfade / Math.sqrt(transitionSpeed));
+          const msUntilStart = Math.max(1, (startAt - this.audioContext.currentTime) * 1000 - 2);
+          try {
+            const hqBuffer = await Promise.race([
+              this.timeStretcher.getHQBuffer(segmentId, preparedBuffer, playbackRate, this.stretchingQuality),
+              new Promise<AudioBuffer>((_, rejectTimeout) => {
+                window.setTimeout(() => rejectTimeout(new Error('hq-timeout')), msUntilStart);
+              }),
+            ]);
+            this.hqCacheHits += 1;
+            source = this.timeStretcher.createNativeSource(hqBuffer, 1, false);
+            sourceOffset = offset / playbackRate;
+            sourceDuration = boundedPlayDuration / playbackRate;
+          } catch {
+            this.hqCacheMisses += 1;
+            this.qualityMetrics.hqFallbackCount = (this.qualityMetrics.hqFallbackCount || 0) + 1;
+            hqMissedDeadline = true;
+            source = this.timeStretcher.createNativeSource(preparedBuffer, playbackRate, true);
+          }
         }
 
-        // Limit fade durations based on segment length
-        const maxFadeDuration = segment.buffer.duration * 0.4; // Increased maximum percentage
-        fadeInDuration = Math.min(fadeInDuration, maxFadeDuration);
-        fadeOutDuration = Math.min(fadeOutDuration, maxFadeDuration);
+    if (!source) {
+      throw new Error('Unable to create audio source');
+    }
 
-        // Store current fade parameters
+        const intervalSeconds = calculateInterval(
+          bpm,
+          division,
+          transitionSpeed,
+          playbackRate
+        ) / 1000;
+        const effectiveSliceDuration = Math.max(0.01, sourceDuration);
+        const gainNode = this.audioContext.createGain();
+        const { fadeInDuration, fadeOutDuration, overlapDuration } = this.calculateCompositedFades(
+          bpm,
+          division,
+          transitionSpeed,
+          playbackRate,
+          effectiveSliceDuration,
+          intervalSeconds
+        );
         this.currentFadeParams = { fadeInDuration, fadeOutDuration };
 
-        // Connect source -> gain -> master -> destination
         source.connect(gainNode);
         gainNode.connect(this.masterGainNode);
+        if (this.recordingDestination) gainNode.connect(this.recordingDestination);
 
-        // Connect to recording destination if available and recording
-        if (this.recordingDestination) {
-          gainNode.connect(this.recordingDestination);
-        }
-
-        // Store references
         this.activeSourceNodes.set(segmentId, source);
         this.gainNodes.set(segmentId, gainNode);
         this.activeGainNode = gainNode;
         this.activeSourceNode = source;
 
-        try {
-          // Start playback with proper error handling
-          const startTime = options.startTime !== undefined ? options.startTime : 0;
-          const endTime = options.endTime !== undefined ? options.endTime : segment.buffer.duration;
-          const offset = Math.max(0, Math.min(startTime, segment.buffer.duration));
-          const playDuration = Math.min(endTime - startTime, segment.buffer.duration - offset);
+        this.updateLevelMetrics(clampedBuffer);
+        this.qualityMetrics.currentFadeMs = fadeInDuration * 1000;
+        this.qualityMetrics.currentOverlapMs = overlapDuration * 1000;
+        this.qualityMetrics.stretchMode = resolvedStretchMode;
 
-          // Define fade times with safety margin
-          const now = this.audioContext.currentTime;
-          const timeSinceLastPlay = now - this.lastPlayedTime;
-          this.lastPlayedTime = now;
+        const overlapLead = Math.max(0.0008, overlapDuration * 0.2);
+        const safeNow = startAt + overlapLead;
 
-          // Detect speed changes to adapt crossfade strategy
-          const currentRate = options.playbackRate || 1.0;
-          const speedChanged = Math.abs(this.lastPlaybackRate - currentRate) > 0.1;
-          this.lastPlaybackRate = currentRate;
-                  
-          // CRITICAL FIX: Add safety buffer to prevent automation overlap errors
-          const safetyMargin = 0.005; // 5ms safety margin
-          
-          // Prepare gain node for crossfade if there's a previous playing segment
-          if (previousGainNode && timeSinceLastPlay < 0.5) {
-            try {
-              // Safety check: verify the gain nodes are still active and connected
-              if (!previousGainNode || isNaN(previousGainNode.gain.value)) {
-                console.warn("Previous gain node is invalid, skipping crossfade");
-              } else {
-                // Get buffers for crossfade operations with validation
-                const prevBuffer = this.getCachedSegmentBuffer(segment.id);
-                
-                // CRITICAL FIX: Start by canceling any scheduled values on both gain nodes
-                // This prevents conflicts with any previous automation events
-                const safeNow = now + safetyMargin;
-                previousGainNode.gain.cancelScheduledValues(safeNow - 0.001);
-                gainNode.gain.cancelScheduledValues(safeNow - 0.001);
-                
-                // Set initial values explicitly to avoid jumps
-                previousGainNode.gain.setValueAtTime(previousGainNode.gain.value || 1, safeNow);
-                gainNode.gain.setValueAtTime(0, safeNow);
-                
-                // Choose appropriate crossfade method based on speed and speed changes
-                if (playbackRate < 0.3) {
-                  // For extremely slow playback, use specialized ultra-smooth crossfade
-                  console.log(`Applying ultra-smooth slow-rate crossfade (rate=${playbackRate})`);
-                  
-                  // Add extra timeout protection for slow playback rates
-                  const timeoutId = setTimeout(() => {
-                    // Emergency fallback if crossfade takes too long
-                    try {
-                      if (previousGainNode) previousGainNode.gain.value = 0;
-                      gainNode.gain.value = 1;
-                    } catch (e) {/* Ignore */}
-                  }, fadeInDuration * 2500); // 2.5x fade duration in ms as backup
-                  
-                  try {
-                    applySlowRateCrossfade(
-                      previousGainNode,
-                      gainNode,
-                      this.audioContext,
-                      fadeInDuration * 1.5, // Extended duration
-                      safeNow, // Use safety margin time
-                      Math.max(0.1, playbackRate) // Ensure minimum playback rate value
-                    );
-                    clearTimeout(timeoutId); // Clear timeout if successful
-                  } catch (error) {
-                    console.warn("Slow rate crossfade failed, using basic fade:", error);
-                    // Simple fallback with no timing issues
-                    previousGainNode.gain.cancelScheduledValues(now);
-                    gainNode.gain.cancelScheduledValues(now);
-                    previousGainNode.gain.setValueAtTime(previousGainNode.gain.value || 1, now);
-                    gainNode.gain.setValueAtTime(0, now);
-                    previousGainNode.gain.linearRampToValueAtTime(0, now + 0.05);
-                    gainNode.gain.linearRampToValueAtTime(1, now + 0.05);
-                  }
-                }
-                else if (transitionSpeed >= 2.0 || speedChanged) {
-                  // For high speeds or speed changes, use multiband with robust error handling
-                  try {
-                    applyAdaptiveMultibandCrossfade(
-                      previousGainNode,
-                      gainNode,
-                      this.audioContext,
-                      prevBuffer,
-                      segment.buffer,
-                      fadeInDuration * (speedChanged ? 1.5 : 1.0),
-                      safeNow, // Use safety margin time
-                      transitionSpeed,
-                      speedChanged
-                    );
-                  } catch (error) {
-                    console.error("Multiband crossfade failed completely, using emergency fallback:", error);
-                    // Emergency fallback - simplest possible crossfade
-                    applySafeFallbackCrossfade(previousGainNode, gainNode, this.audioContext, 0.01);
-                  }
-                } else if (transitionSpeed > 1.0) {
-                  // For moderately high speeds, use zero-click crossfade
-                  applyZeroClickCrossfade(
-                    previousGainNode, 
-                    gainNode, 
-                    this.audioContext, 
-                    fadeInDuration,
-                    safeNow, // Use safety margin time
-                    transitionSpeed
-                  );
-                } else {
-                  // For normal speeds, use phase-aligned crossfade
-                  applyPhaseAlignedCrossfade(
-                    previousGainNode, 
-                    gainNode, 
-                    this.audioContext,
-                    prevBuffer,
-                    segment.buffer,
-                    fadeInDuration,
-                    safeNow, // Use safety margin time
-                    transitionSpeed
-                  );
-                }
-              }
-            } catch (crossfadeError) {
-              // If crossfade fails, fall back to a simple crossfade
-              console.error("Error applying advanced crossfade, using fallback:", crossfadeError);
-              try {
-                // Simple fallback crossfade with safety margin
-                const safeTime = now + safetyMargin;
-                if (previousGainNode) {
-                  previousGainNode.gain.cancelScheduledValues(safeTime);
-                  previousGainNode.gain.setValueAtTime(previousGainNode.gain.value || 1, safeTime);
-                  previousGainNode.gain.linearRampToValueAtTime(0, safeTime + 0.05);
-                }
-                
-                gainNode.gain.cancelScheduledValues(safeTime);
-                gainNode.gain.setValueAtTime(0.0001, safeTime);
-                gainNode.gain.linearRampToValueAtTime(1.0, safeTime + 0.05);
-              } catch (fallbackError) {
-                console.error("Even fallback crossfade failed:", fallbackError);
-                // Continue playback anyway
-              }
-            }
-          } else {
-            // No crossfade needed, just apply fade in with safety margin
-            const safeTime = now + safetyMargin;
-            
-            // CRITICAL FIX: Always cancel scheduled values before setting new ones
-            gainNode.gain.cancelScheduledValues(safeTime - 0.001);
-            gainNode.gain.setValueAtTime(0.0001, safeTime); // Start with tiny non-zero value
-            
-            // Calculate optimal envelope
-            const hasTransients = segment.metadata?.sliceIndex % 4 === 0;
-            const { attack } = calculateTransientEnvelope(options.bpm || 120, division, hasTransients);
-            
-            // Use exponential approach for smoother attack
-            const timeConstant = attack / 4;
-            gainNode.gain.setTargetAtTime(1.0, safeTime, timeConstant);
-            
-            // Ensure we reach exactly 1.0
-            gainNode.gain.linearRampToValueAtTime(1.0, safeTime + attack * 3);
-          }
-          
-          // If we know the duration, apply a fade out
-          if (playDuration > 0) {
-            const fadeOutStart = now + playDuration - fadeOutDuration - safetyMargin;
-            
-            if (playDuration > fadeOutDuration * 2) {
-              // CRITICAL FIX: Add safety check for negative or invalid fade start time
-              if (fadeOutStart <= now) {
-                console.warn("Fade out would start in the past, skipping fade out scheduling");
-              } else {
-                // Schedule the gain to start fading out with very smooth curve
-                gainNode.gain.setValueAtTime(1.0, fadeOutStart);
-                
-                // Multi-stage release for smoother result
-                // Stage 1: Gentle initial decrease
-                const gentleReleaseTime = fadeOutDuration * 0.3;
-                gainNode.gain.setTargetAtTime(0.9, fadeOutStart, gentleReleaseTime);
-                
-                // Stage 2: Main decrease
-                const mainReleaseStart = fadeOutStart + fadeOutDuration * 0.2;
-                const mainReleaseTime = fadeOutDuration * 0.3;
-                gainNode.gain.setValueAtTime(0.9, mainReleaseStart);
-                gainNode.gain.setTargetAtTime(0.1, mainReleaseStart, mainReleaseTime);
-                
-                // Stage 3: Final approach to zero
-                const finalReleaseStart = fadeOutStart + fadeOutDuration * 0.6;
-                const finalReleaseTime = fadeOutDuration * 0.4;
-                gainNode.gain.setValueAtTime(0.1, finalReleaseStart);
-                gainNode.gain.setTargetAtTime(0.0001, finalReleaseStart, finalReleaseTime * 0.5);
-                
-                // Ensure we reach exactly zero
-                gainNode.gain.linearRampToValueAtTime(0, now + playDuration + 0.005);
-              }
-            }
-          }
-          
-          // Start the source
-          source.start(0, offset, playDuration > 0 ? playDuration : undefined);
-          
-          // Log detailed playback information
-          console.log(`Playing segment ${segment.id} (${segment.metadata?.sliceIndex ?? '?'}), offset: ${offset.toFixed(3)}, duration: ${playDuration > 0 ? playDuration.toFixed(3) : 'full'}, rate: ${options.playbackRate || 1}x, fades: in=${fadeInDuration.toFixed(3)}s, out=${fadeOutDuration.toFixed(3)}s`);
-  
-          // Handle completion
-          source.onended = () => {
-            this.cleanupPlayback(segment.id);
-            resolve();
-          };
-        } catch (error) {
-          console.error("Error starting audio playback:", error);
-          this.cleanupPlayback(segment.id);
-          reject(error);
+        if (previousGainNode && previousGainNode !== gainNode) {
+          this.applySimpleEqualPowerCrossfade(
+            previousGainNode,
+            gainNode,
+            fadeInDuration,
+            safeNow,
+            transitionSpeed
+          );
+        } else {
+          this.scheduleGainSafe(gainNode.gain, safeNow - 0.001, 0.0001);
+          gainNode.gain.linearRampToValueAtTime(1.0, safeNow + fadeInDuration);
         }
-      } catch (error) {
-        console.error('Error in playSegment:', error);
-        reject(error);
-      }
+
+        if (sourceDuration > 0) {
+          const fadeOutStart = startAt + sourceDuration - fadeOutDuration - overlapLead;
+          if (fadeOutStart > safeNow) {
+            this.scheduleGainSafe(gainNode.gain, fadeOutStart - 0.001, Math.max(0.0001, gainNode.gain.value || 1));
+            gainNode.gain.linearRampToValueAtTime(0.0001, fadeOutStart + fadeOutDuration);
+          }
+        }
+
+        source.start(startAt, sourceOffset, sourceDuration);
+        this.lastPlayedTime = now;
+        this.lastPlaybackRate = playbackRate;
+
+    await new Promise<void>((resolve) => {
+      source.onended = () => {
+        this.cleanupPlayback(segment.id);
+        if (!hqMissedDeadline) {
+          const total = this.hqCacheHits + this.hqCacheMisses;
+          if (total > 0) this.qualityMetrics.hqCacheHitRate = this.hqCacheHits / total;
+        }
+        resolve();
+      };
     });
+
+    return;
   }
   
   /**
@@ -539,8 +350,7 @@ export class AudioPlaybackEngine {
       }
       
       // Cancel any pending changes and set current value
-      gainNode.gain.cancelScheduledValues(now);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      this.scheduleGainSafe(gainNode.gain, now, Math.max(0.0001, gainNode.gain.value));
       
       // Apply the curve
       gainNode.gain.setValueCurveAtTime(curve, now, fadeTime);
@@ -549,18 +359,22 @@ export class AudioPlaybackEngine {
       setTimeout(() => {
         try {
           source.stop();
-          this.cleanupPlayback(id);
         } catch (e) {
           // Ignore errors
+        } finally {
+          try { gainNode.disconnect(); } catch { /* ignore */ }
+          this.activeSourceNodes.delete(id);
+          this.gainNodes.delete(id);
         }
       }, (fadeTime * 1000) + 10);
     } else if (source) {
       // No gain node available, immediately stop the source
       try {
         source.stop();
-        this.cleanupPlayback(id);
       } catch (e) {
         // Ignore errors
+      } finally {
+        this.activeSourceNodes.delete(id);
       }
     }
   }
@@ -569,10 +383,11 @@ export class AudioPlaybackEngine {
    * Stop all currently playing segments
    */
   public stopAll(): void {
+    this.scheduler.stop();
     // Stop all active sources with a quick fade out
     const activeSourceIds = [...this.activeSourceNodes.keys()];
     for (const id of activeSourceIds) {
-      this.stopSegment(id, 0.01);
+      this.stopSegment(id, 0.02);
     }
     
     // Clear active references
@@ -631,8 +446,7 @@ export class AudioPlaybackEngine {
       const currentGain = gainNode.gain.value;
       
       // Apply tiny fade-out to prevent clicks
-      gainNode.gain.cancelScheduledValues(now);
-      gainNode.gain.setValueAtTime(currentGain, now);
+      this.scheduleGainSafe(gainNode.gain, now, Math.max(0.0001, currentGain));
       gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.01);
       
       // Disconnect after fade completes
@@ -646,8 +460,6 @@ export class AudioPlaybackEngine {
     
     if (source) {
       try {
-        // For source nodes, stop with a small delay to ensure any cleanup
-        // fades have time to execute first
         setTimeout(() => {
           try { source.stop(); } catch (e) { /* ignore if already stopped */ }
           this.activeSourceNodes.delete(id);
@@ -882,6 +694,164 @@ export class AudioPlaybackEngine {
     }
     return peak;
   }
+
+  private calculateCompositedFades(
+    bpm: number,
+    division: string,
+    transitionSpeed: number,
+    playbackRate: number,
+    sliceDurationSeconds: number,
+    intervalSeconds: number
+  ): { fadeInDuration: number; fadeOutDuration: number; overlapDuration: number } {
+    const fadeBase = calculateOptimalCrossfadeDuration(bpm, division);
+    const safeTransition = Math.max(0.25, transitionSpeed);
+    const transitionFactor = Math.max(0.65, Math.min(1.35, Math.pow(1 / safeTransition, 0.35)));
+    const rateFactor = Math.max(0.8, Math.min(1.25, Math.pow(1 / Math.max(0.5, playbackRate), 0.25)));
+    const fadeScaled = fadeBase * transitionFactor * rateFactor;
+    const referenceWindow = Math.max(0.01, Math.min(sliceDurationSeconds, intervalSeconds));
+    const maxAllowed = Math.min(0.12, 0.35 * referenceWindow);
+    const fade = Math.max(0.012, Math.min(maxAllowed, fadeScaled));
+    const overlap = Math.max(0.008, Math.min(fade * 0.85, referenceWindow * 0.25, 0.06));
+    return {
+      fadeInDuration: fade,
+      fadeOutDuration: fade,
+      overlapDuration: overlap,
+    };
+  }
+
+  private scheduleGainSafe(param: AudioParam, startTime: number, value: number): void {
+    const safeTime = Math.max(this.audioContext.currentTime, startTime);
+    param.cancelScheduledValues(Math.max(0, safeTime - 0.002));
+    param.setValueAtTime(value, safeTime);
+  }
+
+  private classifySliceEnergy(buffer: AudioBuffer): number {
+    let peak = 0;
+    let sumSquares = 0;
+    let count = 0;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const data = buffer.getChannelData(channel);
+      for (let i = 0; i < data.length; i++) {
+        const abs = Math.abs(data[i]);
+        peak = Math.max(peak, abs);
+        sumSquares += data[i] * data[i];
+        count += 1;
+      }
+    }
+    const rms = count > 0 ? Math.sqrt(sumSquares / count) : 0;
+    return rms * 0.7 + peak * 0.3;
+  }
+
+  private pickNextSliceIndex(): number {
+    if (!this.slices.length) return -1;
+    if (this.slices.length === 1) return 0;
+
+    const lastIndexIsValid =
+      this.lastRandomSliceIndex >= 0 &&
+      this.lastRandomSliceIndex < this.slices.length;
+    const current = lastIndexIsValid
+      ? this.lastRandomSliceIndex
+      : Math.floor(Math.random() * this.slices.length);
+    const currentEnergy = this.classifySliceEnergy(this.slices[current].buffer);
+    const recentSet = new Set(this.recentRandomHistory);
+    const candidates = this.slices.map((slice, idx) => ({ idx, energy: this.classifySliceEnergy(slice.buffer) }))
+      .filter((entry) => entry.idx !== current);
+
+    const nonRecentCandidates = candidates.filter((entry) => !recentSet.has(entry.idx));
+    const pool = nonRecentCandidates.length > 0 ? nonRecentCandidates : candidates;
+
+    const withScore = pool.map((entry) => {
+      const delta = Math.abs(entry.energy - currentEnergy);
+      const smoothScore = 1 - Math.min(1, delta / 0.35);
+      const randomScore = Math.random();
+      const combined = this.smoothnessBias * smoothScore + (1 - this.smoothnessBias) * randomScore;
+      return { idx: entry.idx, score: combined };
+    });
+
+    withScore.sort((a, b) => b.score - a.score);
+    return withScore[0].idx;
+  }
+
+  private applyHeadroomClamp(buffer: AudioBuffer, headroomDb: number = -1): AudioBuffer {
+    const peak = this.getBufferPeakAmplitude(buffer);
+    if (peak <= 0) return buffer;
+
+    const linearLimit = Math.pow(10, headroomDb / 20);
+    if (peak <= linearLimit) return buffer;
+
+    const gain = linearLimit / peak;
+    const output = this.audioContext.createBuffer(
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate
+    );
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const input = buffer.getChannelData(channel);
+      const out = output.getChannelData(channel);
+      for (let i = 0; i < input.length; i++) {
+        out[i] = input[i] * gain;
+      }
+    }
+
+    return output;
+  }
+
+  private updateLevelMetrics(buffer: AudioBuffer): void {
+    let peak = 0;
+    let sumSquares = 0;
+    let count = 0;
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const data = buffer.getChannelData(channel);
+      for (let i = 0; i < data.length; i++) {
+        const sample = data[i];
+        const abs = Math.abs(sample);
+        if (abs > peak) peak = abs;
+        sumSquares += sample * sample;
+        count += 1;
+      }
+    }
+
+    const rms = count > 0 ? Math.sqrt(sumSquares / count) : 0;
+    if (peak >= 1) {
+      this.qualityMetrics.clipCount += 1;
+    }
+
+    this.qualityMetrics.peakDb = this.toDb(peak);
+    this.qualityMetrics.rmsDb = this.toDb(rms);
+    this.qualityMetrics.contextState = this.audioContext.state;
+  }
+
+  private toDb(value: number): number {
+    if (value <= 0.000001) return -96;
+    return 20 * Math.log10(value);
+  }
+
+  private applySimpleEqualPowerCrossfade(
+    currentGain: GainNode,
+    nextGain: GainNode,
+    fadeDuration: number,
+    startTime: number,
+    transitionSpeed: number
+  ): void {
+    const steps = transitionSpeed >= 2 ? 160 : 96;
+    const fadeOutCurve = new Float32Array(steps);
+    const fadeInCurve = new Float32Array(steps);
+
+    for (let i = 0; i < steps; i++) {
+      const t = i / (steps - 1);
+      fadeOutCurve[i] = Math.max(0.0001, Math.cos((Math.PI * 0.5) * t));
+      fadeInCurve[i] = Math.max(0.0001, Math.sin((Math.PI * 0.5) * t));
+    }
+
+    this.scheduleGainSafe(currentGain.gain, startTime - 0.001, Math.max(0.0001, currentGain.gain.value || 1));
+    this.scheduleGainSafe(nextGain.gain, startTime - 0.001, 0.0001);
+    currentGain.gain.setValueCurveAtTime(fadeOutCurve, startTime, fadeDuration);
+    nextGain.gain.setValueCurveAtTime(fadeInCurve, startTime, fadeDuration);
+    currentGain.gain.setValueAtTime(0.0001, startTime + fadeDuration + 0.002);
+    nextGain.gain.setValueAtTime(1, startTime + fadeDuration + 0.002);
+  }
   
   /**
    * Specialized buffer preparation optimized for transient content
@@ -927,15 +897,7 @@ export class AudioPlaybackEngine {
   }
 
   stopAllPlayback(): void {
-    this.sourceNodes.forEach((source) => {
-      try {
-        source.stop();
-      } catch (e) {
-        // Source might have already stopped
-      }
-    });
-    this.sourceNodes.clear();
-    this.activeSourceNode = null;
+    this.stopAll();
     this.activeSliceIndex = -1;
   }
 
@@ -945,6 +907,105 @@ export class AudioPlaybackEngine {
 
   getSlices(): AudioSlice[] {
     return this.slices;
+  }
+
+  public startRandomPlayback(config?: Partial<{
+    playbackRate: number;
+    bpm: number;
+    division: string;
+    transitionSpeed: number;
+  }>): void {
+    if (!this.slices.length) return;
+    this.randomPlaybackConfig = {
+      ...this.randomPlaybackConfig,
+      ...(config || {}),
+    };
+    const isDesktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches;
+    const resolvedMode = this.timeStretcher.resolveStretchMode(this.stretchMode, this.randomPlaybackConfig.playbackRate);
+    this.scheduler.setConfig({
+      queueDepth: isDesktop && resolvedMode === 'hq' ? 3 : 2,
+    });
+
+    this.scheduler.start(
+      (scheduledTime) => {
+        if (!this.slices.length) return;
+        const index = this.pickNextSliceIndex();
+        if (index < 0) return;
+        this.lastRandomSliceIndex = index;
+        this.recentRandomHistory.push(index);
+        if (this.recentRandomHistory.length > 3) {
+          this.recentRandomHistory.shift();
+        }
+
+        // Prewarm likely upcoming slices for HQ mode to avoid deadline misses.
+        const shouldPrewarm = this.timeStretcher.resolveStretchMode(this.stretchMode, this.randomPlaybackConfig.playbackRate) === 'hq';
+        if (shouldPrewarm && this.slices.length > 2) {
+          for (let i = 0; i < 2; i++) {
+            const prewarmIndex = this.pickNextSliceIndex();
+            const prewarmSlice = this.slices[prewarmIndex];
+            this.timeStretcher.getHQBuffer(
+              prewarmSlice.id,
+              prewarmSlice.buffer,
+              this.randomPlaybackConfig.playbackRate,
+              this.stretchingQuality
+            ).catch(() => undefined);
+          }
+        }
+
+        this.playSlice(
+          index,
+          this.randomPlaybackConfig.playbackRate,
+          this.randomPlaybackConfig.bpm,
+          this.randomPlaybackConfig.transitionSpeed,
+          scheduledTime,
+          this.randomPlaybackConfig.division
+        );
+        this.qualityMetrics.schedulerDriftMs = this.scheduler.getState().schedulerDriftMs;
+        const total = this.hqCacheHits + this.hqCacheMisses;
+        if (total > 0) {
+          this.qualityMetrics.hqCacheHitRate = this.hqCacheHits / total;
+        }
+        this.qualityMetrics.stretchMode = this.stretchMode;
+        this.qualityMetrics.currentOverlapMs = this.qualityMetrics.currentOverlapMs || 0;
+      },
+      () =>
+        calculateInterval(
+          this.randomPlaybackConfig.bpm,
+          this.randomPlaybackConfig.division,
+          this.randomPlaybackConfig.transitionSpeed,
+          this.randomPlaybackConfig.playbackRate
+        )
+    );
+  }
+
+  public stopRandomPlayback(): void {
+    this.scheduler.stop();
+    this.stopAllPlayback();
+    this.lastRandomSliceIndex = -1;
+    this.recentRandomHistory = [];
+  }
+
+  public setSchedulerConfig(config: Partial<SchedulerConfig>): void {
+    this.scheduler.setConfig(config);
+  }
+
+  public getSchedulerState(): { running: boolean; schedulerDriftMs: number } {
+    return this.scheduler.getState();
+  }
+
+  public getCurrentCrossfadeDuration(): number {
+    return this.currentFadeParams?.fadeInDuration ?? 0;
+  }
+
+  public getQualityMetrics(): AudioQualityMetrics {
+    const total = this.hqCacheHits + this.hqCacheMisses;
+    return {
+      ...this.qualityMetrics,
+      schedulerDriftMs: this.scheduler.getState().schedulerDriftMs,
+      contextState: this.audioContext.state,
+      hqCacheHitRate: total > 0 ? this.hqCacheHits / total : this.qualityMetrics.hqCacheHitRate || 0,
+      stretchMode: this.stretchMode,
+    };
   }
 
   getRecordingDestination(): MediaStream | null {
@@ -975,46 +1036,49 @@ export class AudioPlaybackEngine {
   }
 
   /**
-   * Get a segment's buffer from the cache with better error handling
-   */
-  private getCachedSegmentBuffer(id: string): AudioBuffer | null {
-    try {
-      const segment = this.cache.get(id);
-      return segment ? segment.buffer : null;
-    } catch (e) {
-      console.warn(`Error retrieving cached segment ${id}:`, e);
-      return null;
-    }
-  }
-
-  /**
    * Parse the division string to get the numeric value
    * For example, "1/4" returns 0.25, "1/8" returns 0.125, etc.
    */
   private getDivisionValue(division: string): number {
-    if (!division || division === '') {
-      return 0.25; // Default to quarter note (1/4)
+    switch (division) {
+      case '1/1':
+        return 4.0;
+      case '1/2':
+        return 2.0;
+      case '1/4':
+        return 1.0;
+      case '1/8':
+        return 0.5;
+      case '1/16':
+        return 0.25;
+      case '1/32':
+        return 0.125;
+      default:
+        return 1.0;
     }
-    
-    // Handle simple fractions like "1/4", "1/8", etc.
-    const parts = division.split('/');
-    if (parts.length === 2) {
-      const numerator = parseInt(parts[0], 10);
-      const denominator = parseInt(parts[1], 10);
-      if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
-        return numerator / denominator;
-      }
-    }
-    
-    // Default value if parsing fails
-    return 0.25; // 1/4 note
   }
 
   reset(): void {
-    this.stopAllPlayback();
+    this.stopRandomPlayback();
     this.audioBuffer = null;
     this.slices = [];
     this.activeSliceIndex = -1;
+    this.qualityMetrics = {
+      peakDb: -96,
+      rmsDb: -96,
+      clipCount: 0,
+      schedulerDriftMs: 0,
+      contextState: this.audioContext.state,
+      hqCacheHitRate: 0,
+      hqFallbackCount: 0,
+      currentFadeMs: 0,
+      currentOverlapMs: 0,
+      stretchMode: this.stretchMode,
+    };
+    this.hqCacheHits = 0;
+    this.hqCacheMisses = 0;
+    this.lastRandomSliceIndex = -1;
+    this.recentRandomHistory = [];
   }
 
   /**
@@ -1024,7 +1088,14 @@ export class AudioPlaybackEngine {
    * @param bpm The BPM to use for timing calculations
    * @param transitionSpeed The speed for transitions between slices
    */
-  public playSlice(index: number, playbackRate: number = 1, bpm: number = 120, transitionSpeed: number = 1): void {
+  public playSlice(
+    index: number,
+    playbackRate: number = 1,
+    bpm: number = 120,
+    transitionSpeed: number = 1,
+    scheduledStartTime?: number,
+    division: string = '1/4'
+  ): void {
     console.log(`PlaySlice: Starting playback of slice ${index} (available: ${this.slices?.length || 0})`);
     
     // Validate parameters
@@ -1071,7 +1142,9 @@ export class AudioPlaybackEngine {
       const options: PlaybackOptions = {
         playbackRate,
         bpm,
-        transitionSpeed
+        transitionSpeed,
+        scheduledStartTime,
+        division,
       };
 
       // Convert slice to AudioSegment with proper metadata
@@ -1121,6 +1194,7 @@ export class AudioPlaybackEngine {
     
     // Store the new rate
     this.lastPlaybackRate = rate;
+    this.randomPlaybackConfig.playbackRate = rate;
     
     // Apply to currently active source if possible
     if (this.activeSourceNode && 'playbackRate' in this.activeSourceNode) {
